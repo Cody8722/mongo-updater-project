@@ -1,102 +1,149 @@
 import os
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure, OperationFailure
 from dotenv import load_dotenv
+from flask_cors import CORS
+from bson import json_util
+import json
 
-# 載入 .env 檔案中的環境變數 (主要用於本地測試)
+# --- 初始化 ---
+
+# 載入 .env 檔案中的環境變數
 load_dotenv()
 
+# 建立 Flask 應用程式實例
 app = Flask(__name__)
-# 允許所有來源的跨域請求，這樣前端才能呼叫後端
+# 啟用 CORS，允許來自任何來源的跨域請求，方便前端開發
 CORS(app)
 
-# --- 從環境變數讀取資料庫連線資訊 ---
+# --- 資料庫連線 ---
+
+# 從環境變數中取得 MongoDB 連線 URI
 MONGO_URI = os.getenv('MONGO_URI')
-DATABASE_NAME = "scheduleApp"
-COLLECTION_NAME = "holidays"
+client = None
+db = None
+holidays_collection = None
 
-# 建立 MongoDB 客戶端
+# 嘗試建立資料庫連線
 try:
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    client.admin.command('ping')
-    print("✅ 成功連接到 MongoDB！")
-except ConnectionFailure as e:
-    print(f"❌ 無法連接到 MongoDB，請檢查 MONGO_URI 環境變數。錯誤: {e}")
-    client = None
-
-# --- API 端點 (Endpoint) ---
-
-# 【新功能】 檢測資料庫連線狀態
-@app.route('/api/status', methods=['GET'])
-def get_status():
-    if not client:
-        return jsonify({"status": "error", "message": "後端未連接到資料庫"}), 500
+    if not MONGO_URI:
+        # 如果找不到連線字串，拋出錯誤，這會讓 /status 回報錯誤
+        raise ValueError("錯誤：找不到 MONGO_URI 環境變數。請檢查您的 .env 檔案或伺服器設定。")
     
-    try:
-        # 使用 ping 指令來實際檢查連線是否仍然活躍
-        client.admin.command('ping')
-        return jsonify({"status": "success", "message": "成功連接到資料庫"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"資料庫連線中斷: {e}"}), 500
+    client = MongoClient(MONGO_URI)
+    # 進行一次伺服器 ping 測試來確認連線是否成功
+    client.admin.command('ping')
+    print("成功連線到 MongoDB！")
+    # 連接到 scheduleApp 資料庫
+    db = client.scheduleApp
+    # 取得 holidays 集合
+    holidays_collection = db.holidays
 
-# 取得特定月份的所有假日資料
-@app.route('/api/get_holidays', methods=['GET'])
+except Exception as e:
+    # 如果連線失敗，印出錯誤訊息，後續的 /status API 會處理這個狀態
+    print(f"無法連線到 MongoDB: {e}")
+
+
+# --- API 路由 (Endpoints) ---
+
+@app.route('/status', methods=['GET'])
+def get_status():
+    """
+    檢查與資料庫的連線狀態。
+    """
+    if client and db:
+        try:
+            # 再次 ping 伺服器以確保連線仍然活躍
+            client.admin.command('ping')
+            return jsonify({"status": "ok", "db_status": "connected"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "db_status": "disconnected", "message": str(e)}), 500
+    else:
+        return jsonify({"status": "error", "db_status": "disconnected", "message": "MongoDB client is not initialized."}), 500
+
+
+@app.route('/get_holidays', methods=['GET'])
 def get_holidays():
-    if not client:
-        return jsonify({"status": "error", "message": "資料庫連線失敗"}), 500
-
-    year = request.args.get('year')
-    month = request.args.get('month')
-
-    if not year or not month:
-        return jsonify({"status": "error", "message": "缺少 'year' 或 'month' 參數"}), 400
+    """
+    根據年份和月份獲取假日資料。
+    """
+    if not holidays_collection:
+        return jsonify({"error": "資料庫集合未初始化"}), 500
 
     try:
+        year = request.args.get('year')
+        month = request.args.get('month')
+
+        if not year or not month:
+            return jsonify({"error": "缺少年份或月份參數"}), 400
+
+        # 建立查詢的正則表達式，例如：^202510
         query_pattern = f"^{year}{str(month).zfill(2)}"
-        db = client[DATABASE_NAME]
-        collection = db[COLLECTION_NAME]
-        holidays_cursor = collection.find({"_id": {"$regex": query_pattern}})
-        holidays_list = list(holidays_cursor)
-        return jsonify({"status": "success", "data": holidays_list})
+        
+        # 查詢 _id 符合 "YYYYMM" 開頭的所有文件
+        cursor = holidays_collection.find({"_id": {"$regex": query_pattern}})
+        
+        # 將查詢結果轉換為 list of dicts
+        holidays_list = list(cursor)
+        
+        # 使用 bson.json_util 來正確處理 MongoDB 的特殊資料型態 (例如 ObjectId)
+        return json.loads(json_util.dumps(holidays_list)), 200
+
     except Exception as e:
-        return jsonify({"status": "error", "message": f"發生未知錯誤: {e}"}), 500
+        return jsonify({"error": str(e)}), 500
 
-# 更新或建立一筆假日資料
-@app.route('/api/update_holiday', methods=['POST'])
+
+@app.route('/update_holiday', methods=['POST'])
 def update_holiday():
-    if not client:
-        return jsonify({"status": "error", "message": "資料庫連線失敗"}), 500
-
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "error", "message": "請求中沒有資料"}), 400
-
-    holiday_id = data.get('id')
-    update_payload = data.get('payload')
-
-    if not holiday_id or not update_payload:
-        return jsonify({"status": "error", "message": "缺少 'id' 或 'payload'"}), 400
+    """
+    更新或插入一筆假日資料。
+    """
+    if not holidays_collection:
+        return jsonify({"error": "資料庫集合未初始化"}), 500
 
     try:
-        db = client[DATABASE_NAME]
-        collection = db[COLLECTION_NAME]
-        query_filter = {"_id": holiday_id}
-        result = collection.update_one(query_filter, update_payload, upsert=True)
-        
-        if result.upserted_id:
-            message = f"成功新增資料，ID: {result.upserted_id}"
-        elif result.modified_count > 0:
-            message = "成功更新資料！"
-        else:
-            message = "找到資料，但內容無變化。"
-        return jsonify({"status": "success", "message": message})
-    except OperationFailure as e:
-        return jsonify({"status": "error", "message": f"資料庫操作失敗: {e}"}), 500
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"發生未知錯誤: {e}"}), 500
+        data = request.get_json()
+        if not data or '_id' not in data:
+            return jsonify({"error": "無效的請求資料，缺少 _id"}), 400
 
+        doc_id = data['_id']
+        
+        # 準備要更新或插入的資料，移除 _id 欄位
+        update_data = {k: v for k, v in data.items() if k != '_id'}
+
+        # 使用 update_one 搭配 upsert=True
+        # 如果找到符合 _id 的文件，就更新它
+        # 如果找不到，就將 filter (_id) 和 update_data ($set) 的內容合併起來，插入一筆新的文件
+        result = holidays_collection.update_one(
+            {"_id": doc_id},
+            {"$set": update_data},
+            upsert=True
+        )
+
+        if result.upserted_id or result.modified_count > 0:
+            return jsonify({"message": "資料已成功儲存"}), 200
+        else:
+            return jsonify({"message": "資料無變動"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- 本地開發專用啟動區 ---
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=True)
+    # 下方的程式碼只有在你於自己的電腦上，透過終端機執行 `python main.py` 指令時，
+    # 才會被執行。它的主要目的是啟動一個方便我們開發和除錯的測試伺服器。
+    #
+    # 在 Zeabur 上，應用程式是由 Gunicorn 啟動的，所以 Zeabur 會完全忽略這一段。
+
+    # 從環境變數中讀取 PORT，如果找不到，就預設使用 5000。
+    # 這讓我們可以彈性地指定要用哪個端口，同時也確保在本地執行時有一個預設值。
+    port = int(os.environ.get('PORT', 5000))
+
+    # 啟動 Flask 內建的開發伺服器
+    app.run(
+        host='0.0.0.0',  # 監聽所有網路介面，讓我們可以從同一個網路下的其他裝置連線測試
+        port=port,       # 使用我們上面指定的端口
+        debug=True       # 開啟偵錯模式，當程式碼有變動並存檔時，伺服器會自動重啟，非常方便！
+    )
 
