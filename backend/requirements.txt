@@ -1,6 +1,5 @@
-Flask
+Flask>=3.0.0
 pymongo
 python-dotenv
 gunicorn
 Flask-Cors
-Werkzeug==2.3.9
