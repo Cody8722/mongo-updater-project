@@ -28,13 +28,25 @@ except ConnectionFailure as e:
 
 # --- API 端點 (Endpoint) ---
 
-# 【新功能】 取得特定月份的所有假日資料
+# 【新功能】 檢測資料庫連線狀態
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    if not client:
+        return jsonify({"status": "error", "message": "後端未連接到資料庫"}), 500
+    
+    try:
+        # 使用 ping 指令來實際檢查連線是否仍然活躍
+        client.admin.command('ping')
+        return jsonify({"status": "success", "message": "成功連接到資料庫"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"資料庫連線中斷: {e}"}), 500
+
+# 取得特定月份的所有假日資料
 @app.route('/api/get_holidays', methods=['GET'])
 def get_holidays():
     if not client:
         return jsonify({"status": "error", "message": "資料庫連線失敗"}), 500
 
-    # 1. 從前端的請求中取得 year 和 month 參數
     year = request.args.get('year')
     month = request.args.get('month')
 
@@ -42,20 +54,12 @@ def get_holidays():
         return jsonify({"status": "error", "message": "缺少 'year' 或 'month' 參數"}), 400
 
     try:
-        # 2. 建立查詢樣式，例如：找出所有 _id 以 "202510" 開頭的文件
         query_pattern = f"^{year}{str(month).zfill(2)}"
-        
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
-
-        # 3. 執行查詢
         holidays_cursor = collection.find({"_id": {"$regex": query_pattern}})
-        
-        # 4. 將查詢結果轉換成列表格式回傳給前端
         holidays_list = list(holidays_cursor)
-        
         return jsonify({"status": "success", "data": holidays_list})
-
     except Exception as e:
         return jsonify({"status": "error", "message": f"發生未知錯誤: {e}"}), 500
 
@@ -79,8 +83,6 @@ def update_holiday():
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
         query_filter = {"_id": holiday_id}
-        
-        # 使用 upsert=True，如果找不到資料就新增一筆
         result = collection.update_one(query_filter, update_payload, upsert=True)
         
         if result.upserted_id:
@@ -89,9 +91,7 @@ def update_holiday():
             message = "成功更新資料！"
         else:
             message = "找到資料，但內容無變化。"
-
         return jsonify({"status": "success", "message": message})
-
     except OperationFailure as e:
         return jsonify({"status": "error", "message": f"資料庫操作失敗: {e}"}), 500
     except Exception as e:
