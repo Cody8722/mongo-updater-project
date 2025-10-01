@@ -1,1 +1,170 @@
-  
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MongoDB 日曆更新小幫手 (全端版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; background-color: #f0f2f5; }
+        .form-label { @apply block text-sm font-medium text-gray-700 mb-1; }
+        .form-input { @apply block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm; }
+        .form-textarea { @apply mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm; }
+        .btn { @apply inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white disabled:opacity-50 disabled:cursor-not-allowed; }
+        .btn-primary { @apply bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500; }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 24px; border-radius: 8px; color: white; font-weight: 500; z-index: 50; opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: none; }
+        .toast.show { opacity: 1; transform: translate(-50%, -10px); }
+        .toast.success { background-color: #28a745; }
+        .toast.error { background-color: #dc3545; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">MongoDB 日曆更新工具</h1>
+            <p class="mt-2 text-md text-gray-600">直接在網頁上修改您的假日資料庫！</p>
+        </div>
+
+        <form id="mongo-form">
+            <div class="space-y-6">
+                <div>
+                    <label for="date-picker" class="form-label">1. 選擇要修改的日期</label>
+                    <input type="date" id="date-picker" class="form-input">
+                </div>
+                
+                <div>
+                    <label for="holiday-name" class="form-label">2. 假日名稱</label>
+                    <input type="text" id="holiday-name" class="form-input" placeholder="例如：國慶日">
+                </div>
+
+                <div>
+                    <label class="form-label">3. 假日狀態</label>
+                    <div class="flex items-center space-x-4">
+                         <div class="flex items-center">
+                            <input id="is-holiday-true" name="isHoliday" type="radio" checked class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="is-holiday-true" class="ml-2 block text-sm text-gray-900">是假日</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="is-holiday-false" name="isHoliday" type="radio" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="is-holiday-false" class="ml-2 block text-sm text-gray-900">不是假日 (補班日)</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mt-8">
+                <button type="submit" id="submit-button" class="btn btn-primary w-full md:w-auto">
+                    <svg id="submit-icon" class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                    <svg id="loading-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span id="button-text">儲存變更</span>
+                </button>
+            </div>
+        </form>
+    </div>
+    <div id="toast-notification" class="toast"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('mongo-form');
+    const datePicker = document.getElementById('date-picker');
+    const holidayNameInput = document.getElementById('holiday-name');
+    const toast = document.getElementById('toast-notification');
+    const submitButton = document.getElementById('submit-button');
+    const buttonText = document.getElementById('button-text');
+    const submitIcon = document.getElementById('submit-icon');
+    const loadingSpinner = document.getElementById('loading-spinner');
+
+    // --- 設定後端 API 的網址 ---
+    // 在本地測試時，它會指向你的電腦。部署到 Zeabur 後，要換成 Zeabur 提供給你的後端網址！
+    const backendUrl = 'http://127.0.0.1:5000/api/update_holiday';
+
+    // 設定日曆預設為今天
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    datePicker.value = `${yyyy}-${mm}-${dd}`;
+
+    let toastTimeout;
+    function showToast(message, type = 'success') {
+        clearTimeout(toastTimeout);
+        toast.textContent = message;
+        toast.className = `toast show ${type}`;
+        toastTimeout = setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
+    }
+
+    function setLoading(isLoading) {
+        if (isLoading) {
+            submitButton.disabled = true;
+            buttonText.textContent = '儲存中...';
+            submitIcon.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+        } else {
+            submitButton.disabled = false;
+            buttonText.textContent = '儲存變更';
+            submitIcon.classList.remove('hidden');
+            loadingSpinner.classList.add('hidden');
+        }
+    }
+
+    form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        setLoading(true);
+
+        const dateValue = datePicker.value;
+        const holidayId = dateValue.replace(/-/g, ''); // 轉換成 YYYYMMDD 格式
+        const holidayName = holidayNameInput.value.trim();
+        const isHoliday = document.getElementById('is-holiday-true').checked;
+
+        if (!holidayName) {
+            showToast('假日名稱不能為空！', 'error');
+            setLoading(false);
+            return;
+        }
+
+        // 準備要寄送給後端 "信差" 的信件內容 (Payload)
+        const requestBody = {
+            id: holidayId,
+            payload: {
+                "$set": {
+                    name: holidayName,
+                    isHoliday: isHoliday,
+                    date: dateValue // 同時也儲存 YYYY-MM-DD 格式的日期
+                }
+            }
+        };
+
+        try {
+            // 使用 fetch API 將信件寄送出去
+            const response = await fetch(backendUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showToast(result.message || '操作成功！', 'success');
+            } else {
+                throw new Error(result.message || '發生未知錯誤');
+            }
+        } catch (error) {
+            console.error('Fetch Error:', error);
+            showToast(`操作失敗: ${error.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    });
+});
+</script>
+</body>
+</html>
