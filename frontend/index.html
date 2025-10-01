@@ -5,172 +5,100 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MongoDB 日曆更新小幫手</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        /* 基本風格設定 */
         body {
-            font-family: 'Noto Sans TC', sans-serif;
-            background-color: #f0f2f5; /* 柔和的背景色 */
-            color: #1f2937;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 1rem;
+            background-color: #f3f4f6;
         }
-
-        /* 主應用程式容器卡片 */
-        .app-container {
-            width: 100%;
-            max-width: 1200px;
-            background-color: white;
-            border-radius: 1rem; /* 更大的圓角 */
-            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-            padding: 2rem;
-            display: flex;
-            gap: 2rem;
-            flex-direction: column;
-            lg:flex-direction: row;
-        }
-
-        /* 標題美化 */
-        h1, h2 {
-            font-weight: 700;
-        }
-        
-        .main-title {
-            text-align: center;
-            color: #111827;
-            margin-bottom: 1.5rem;
-            font-size: 1.875rem;
-            line-height: 2.25rem;
-        }
-
-        /* 按鈕美化 */
-        .btn {
-            transition: all 0.2s ease-in-out;
-            border-radius: 0.5rem;
-            padding: 0.5rem 1rem;
-            font-weight: 500;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-        }
-
-        /* 日曆網格美化 */
-        #calendar-grid {
-            border-collapse: separate;
-            border-spacing: 0.5rem;
-            width: 100%;
-        }
-
+        /* 日曆格子的基本樣式 */
         .calendar-day {
-            transition: all 0.2s ease-in-out;
-            border-radius: 0.5rem;
-            position: relative;
+            transition: background-color 0.2s;
         }
-
-        .calendar-day:hover {
-            background-color: #e5e7eb;
-            transform: scale(1.05);
-        }
-
+        /* 當日期被選中時的樣式 */
         .calendar-day.selected {
             background-color: #3b82f6;
-            color: white;
-            font-weight: bold;
+            color: white !important; /* 使用 !important 來覆蓋其他顏色設定 */
+            border-radius: 50%;
         }
-        
         /* 假日與週末的顏色 */
         .holiday, .weekend {
             color: #ef4444; /* 紅色 */
         }
-
         /* 補班日的顏色 */
         .workday {
             color: #6b7280; /* 灰色 */
         }
-
         /* 狀態指示燈 */
         #db-status-indicator {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             transition: background-color 0.3s;
         }
-
     </style>
 </head>
-<body>
+<body class="p-4 sm:p-8">
 
-    <div class="w-full max-w-6xl mx-auto">
-        <h1 class="main-title">📅 MongoDB 假日設定小幫手</h1>
-        
-        <div class="app-container">
+    <div class="max-w-6xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold text-center mb-6">MongoDB 假日設定小幫手</h1>
 
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <!-- 左側日曆區 -->
-            <div class="w-full lg:w-2/3">
-                <div class="bg-gray-100 p-6 rounded-lg shadow-inner">
-                    <!-- 月份切換 -->
-                    <div class="flex justify-between items-center mb-4">
-                        <button id="prev-month" class="btn bg-white text-gray-700 shadow-sm">&lt; 上個月</button>
-                        <h2 id="month-year" class="text-2xl font-bold text-gray-800"></h2>
-                        <button id="next-month" class="btn bg-white text-gray-700 shadow-sm">下個月 &gt;</button>
-                    </div>
+            <div class="lg:col-span-2">
+                <!-- 月份切換 -->
+                <div class="flex justify-between items-center mb-4">
+                    <button id="prev-month" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; 上個月</button>
+                    <h2 id="month-year" class="text-xl font-semibold"></h2>
+                    <button id="next-month" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">下個月 &gt;</button>
+                </div>
 
-                    <!-- 星期標頭 -->
-                    <div class="grid grid-cols-7 gap-2 text-center font-semibold mb-2">
-                        <div class="text-red-500">日</div>
-                        <div>一</div>
-                        <div>二</div>
-                        <div>三</div>
-                        <div>四</div>
-                        <div>五</div>
-                        <div class="text-red-500">六</div>
-                    </div>
+                <!-- 星期標頭 -->
+                <div class="grid grid-cols-7 gap-2 text-center font-medium text-gray-600 mb-2">
+                    <div class="text-red-500">日</div>
+                    <div>一</div>
+                    <div>二</div>
+                    <div>三</div>
+                    <div>四</div>
+                    <div>五</div>
+                    <div class="text-red-500">六</div>
+                </div>
 
-                    <!-- 日期格子區 -->
-                    <div id="calendar-days" class="grid grid-cols-7 gap-2">
-                        <!-- Calendar days will be generated by JavaScript -->
-                    </div>
+                <!-- 日期格子區 -->
+                <div id="calendar-days" class="grid grid-cols-7 gap-2">
+                    <!-- Calendar days will be generated by JavaScript -->
                 </div>
             </div>
 
             <!-- 右側編輯區 -->
-            <div class="w-full lg:w-1/3">
-                 <div class="bg-gray-100 p-6 rounded-lg shadow-inner h-full">
-                    <h2 class="text-xl font-bold mb-4 text-gray-800">編輯日期資料</h2>
-                    <form id="holiday-form" class="space-y-4">
-                        <div>
-                            <label for="date-id" class="block text-sm font-medium text-gray-700">日期 ID (_id)</label>
-                            <input type="text" id="date-id" name="date-id" readonly class="mt-1 block w-full bg-gray-200 border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2">
-                        </div>
-                        <div>
-                            <label for="holiday-name" class="block text-sm font-medium text-gray-700">假日名稱 (name)</label>
-                            <input type="text" id="holiday-name" name="holiday-name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2" placeholder="例如：春節">
-                        </div>
-                        <div class="flex items-center">
-                            <input id="is-holiday" name="is-holiday" type="checkbox" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
-                            <label for="is-holiday" class="ml-2 block text-sm text-gray-900">
-                                標示為假日 (isHoliday)
-                            </label>
-                        </div>
-                        <button type="submit" class="w-full btn bg-blue-600 text-white hover:bg-blue-700">
-                            儲存變更
-                        </button>
-                    </form>
-                    <div id="response-message" class="mt-4 text-center text-sm font-medium"></div>
-                 </div>
+            <div class="lg:col-span-1 border-t lg:border-t-0 lg:border-l pt-6 lg:pt-0 lg:pl-8">
+                <h2 class="text-lg font-bold mb-4">編輯日期資料</h2>
+                <form id="holiday-form" class="space-y-4">
+                    <div>
+                        <label for="date-id" class="block text-sm font-medium text-gray-700">日期 ID (_id)</label>
+                        <input type="text" id="date-id" name="date-id" readonly class="mt-1 block w-full bg-gray-100 border-gray-300 rounded-md shadow-sm p-2">
+                    </div>
+                    <div>
+                        <label for="holiday-name" class="block text-sm font-medium text-gray-700">假日名稱 (name)</label>
+                        <input type="text" id="holiday-name" name="holiday-name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 p-2" placeholder="例如：春節">
+                    </div>
+                    <div class="flex items-center">
+                        <input id="is-holiday" name="is-holiday" type="checkbox" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                        <label for="is-holiday" class="ml-2 block text-sm text-gray-900">
+                            標示為假日 (isHoliday)
+                        </label>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600">
+                        儲存變更
+                    </button>
+                </form>
+                <div id="response-message" class="mt-4 text-center text-sm font-medium"></div>
             </div>
         </div>
-
-        <!-- 頁尾狀態顯示 -->
-        <div class="fixed bottom-4 right-4 flex items-center space-x-2 bg-white p-3 rounded-full shadow-lg">
-            <div id="db-status-indicator" class="bg-gray-400"></div>
-            <span id="db-status-text" class="text-sm text-gray-600 font-medium">正在檢查資料庫狀態...</span>
-        </div>
+    </div>
+    
+    <!-- 頁尾狀態顯示 -->
+    <div class="fixed bottom-4 right-4 flex items-center space-x-2 bg-white py-2 px-3 rounded-full shadow-lg">
+        <div id="db-status-indicator" class="bg-gray-400"></div>
+        <span id="db-status-text" class="text-xs text-gray-600 font-medium">正在檢查...</span>
     </div>
 
 <script>
@@ -192,16 +120,11 @@
 
     // --- 狀態變數 ---
     let currentDate = new Date();
-    let holidaysData = {}; // 用來快取月份資料
+    let holidaysData = {};
     let selectedDateElement = null;
 
     // --- 函式區 ---
 
-    /**
-     * 格式化日期為 YYYYMMDD
-     * @param {Date} date - 日期物件
-     * @returns {string} - "YYYYMMDD" 格式的字串
-     */
     function formatDateToId(date) {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -209,62 +132,40 @@
         return `${year}${month}${day}`;
     }
 
-    /**
-     * 從後端獲取指定月份的假日資料
-     * @param {number} year - 年份
-     * @param {number} month - 月份 (1-12)
-     */
     async function fetchHolidays(year, month) {
-        const monthStr = String(month).padStart(2, '0');
-        const monthKey = `${year}-${monthStr}`;
-        responseMessageEl.textContent = '讀取中...';
         try {
             const response = await fetch(`${backendUrl}/get_holidays?year=${year}&month=${month}`);
-            if (!response.ok) {
-                throw new Error('無法從伺服器獲取資料');
-            }
+            if (!response.ok) throw new Error('無法獲取資料');
             const data = await response.json();
-            holidaysData = {}; // 清空舊資料
+            holidaysData = {};
             data.forEach(holiday => {
                 holidaysData[holiday._id] = holiday;
             });
-            renderCalendar(); // 拿到資料後重新渲染
-             responseMessageEl.textContent = '';
+            renderCalendar();
         } catch (error) {
             console.error('Fetch holidays error:', error);
             responseMessageEl.textContent = `讀取錯誤: ${error.message}`;
         }
     }
 
-
-    /**
-     * 渲染日曆
-     */
     function renderCalendar() {
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth(); // 0-11
+        const month = currentDate.getMonth();
 
-        // 更新標題
         monthYearEl.textContent = `${year}年 ${month + 1}月`;
-
-        // 清空日曆
         calendarDaysEl.innerHTML = '';
 
-        // 計算當月第一天是星期幾 & 當月總天數
         const firstDayOfMonth = new Date(year, month, 1);
-        const startDay = firstDayOfMonth.getDay(); // 0=Sun, 1=Mon...
+        const startDay = firstDayOfMonth.getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // 填入空白格子 (補齊第一天前的空格)
         for (let i = 0; i < startDay; i++) {
-            const emptyCell = document.createElement('div');
-            calendarDaysEl.appendChild(emptyCell);
+            calendarDaysEl.appendChild(document.createElement('div'));
         }
 
-        // 填入日期
         for (let day = 1; day <= daysInMonth; day++) {
             const dateCell = document.createElement('div');
-            dateCell.className = 'calendar-day p-2 text-center cursor-pointer';
+            dateCell.className = 'calendar-day h-10 flex items-center justify-center cursor-pointer';
             
             const tempDate = new Date(year, month, day);
             const dateId = formatDateToId(tempDate);
@@ -273,38 +174,35 @@
             dateCell.textContent = day;
             dateCell.dataset.dateId = dateId;
 
-            // 根據資料庫和週末設定顏色
+            // --- 智慧上色邏輯 ---
             const holidayInfo = holidaysData[dateId];
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
             if (holidayInfo) {
+                // 如果資料庫有這天的資料
                 if (holidayInfo.isHoliday) {
-                    dateCell.classList.add('holiday');
+                    dateCell.classList.add('holiday'); // 標示為假日
                 } else {
-                    dateCell.classList.add('workday'); // 資料庫設定為非假日(補班日)
+                    dateCell.classList.add('workday'); // 標示為補班日
                 }
             } else if (isWeekend) {
+                // 如果資料庫沒資料，但本身是週末
                 dateCell.classList.add('weekend');
             }
 
-
-            // 點擊事件
             dateCell.addEventListener('click', () => {
-                // 更新選中樣式
                 if (selectedDateElement) {
                     selectedDateElement.classList.remove('selected');
                 }
                 dateCell.classList.add('selected');
                 selectedDateElement = dateCell;
 
-                // 填入表單
                 dateIdInput.value = dateId;
                 const data = holidaysData[dateId];
                 if (data) {
                     holidayNameInput.value = data.name || '';
                     isHolidayCheckbox.checked = data.isHoliday;
                 } else {
-                    // 如果是新日期，預設名稱為空，並根據是否為週末設定假日勾選
                     holidayNameInput.value = '';
                     isHolidayCheckbox.checked = isWeekend;
                 }
@@ -314,10 +212,6 @@
         }
     }
 
-    /**
-     * 處理表單提交
-     * @param {Event} e - 事件物件
-     */
     async function handleFormSubmit(e) {
         e.preventDefault();
         const dateId = dateIdInput.value;
@@ -339,23 +233,17 @@
         try {
             const response = await fetch(`${backendUrl}/update_holiday`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data),
             });
-
             const result = await response.json();
-
             if (response.ok) {
                 responseMessageEl.textContent = result.message || '儲存成功！';
                 responseMessageEl.style.color = 'green';
-                // 重新獲取當月資料以更新日曆顏色
                 fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
             } else {
                 throw new Error(result.error || '儲存失敗');
             }
-
         } catch (error) {
             console.error('Submit error:', error);
             responseMessageEl.textContent = `錯誤: ${error.message}`;
@@ -363,24 +251,19 @@
         }
     }
     
-    /**
-     * 檢查資料庫連線狀態
-     */
     async function checkDbStatus() {
         try {
             const response = await fetch(`${backendUrl}/status`);
-            if (response.ok) {
-                const data = await response.json();
-                if (data.db_status === 'connected') {
-                    dbStatusIndicator.style.backgroundColor = '#22c55e'; // green-500
-                    dbStatusText.textContent = '資料庫連線正常';
-                    return;
-                }
+            const data = await response.json();
+            if (response.ok && data.db_status === 'connected') {
+                dbStatusIndicator.style.backgroundColor = '#22c55e'; // green-500
+                dbStatusText.textContent = '連線正常';
+            } else {
+                throw new Error(data.db_status || '連線狀態未知');
             }
-            throw new Error('狀態檢查失敗');
         } catch (error) {
             dbStatusIndicator.style.backgroundColor = '#ef4444'; // red-500
-            dbStatusText.textContent = '資料庫連線異常';
+            dbStatusText.textContent = '連線異常';
             console.error('DB Status Check Error:', error);
         }
     }
@@ -403,7 +286,6 @@
         fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
         checkDbStatus();
     });
-
 </script>
 </body>
 </html>
