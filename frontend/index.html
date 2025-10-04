@@ -140,7 +140,7 @@
         });
     });
 
-    // 日曆功能 (保持原樣)
+    // --- 日曆功能 ---
     const monthYearEl = document.getElementById('month-year');
     const calendarDaysEl = document.getElementById('calendar-days');
     const prevMonthBtn = document.getElementById('prev-month');
@@ -150,8 +150,6 @@
     const holidayNameInput = document.getElementById('holiday-name');
     const isHolidayCheckbox = document.getElementById('is-holiday');
     const responseMessageEl = document.getElementById('response-message');
-    const dbStatusIndicator = document.getElementById('db-status-indicator');
-    const dbStatusText = document.getElementById('db-status-text');
     let currentDate = new Date();
     let holidaysData = {};
     let selectedDateElement = null;
@@ -171,9 +169,7 @@
             holidaysData = {};
             data.forEach(holiday => { holidaysData[holiday._id] = holiday; });
             renderCalendar();
-        } catch (error) {
-            console.error('Fetch holidays error:', error);
-        }
+        } catch (error) { console.error('Fetch holidays error:', error); }
     }
 
     function renderCalendar() {
@@ -184,9 +180,7 @@
         const firstDayOfMonth = new Date(year, month, 1);
         const startDay = firstDayOfMonth.getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-        for (let i = 0; i < startDay; i++) {
-            calendarDaysEl.appendChild(document.createElement('div'));
-        }
+        for (let i = 0; i < startDay; i++) { calendarDaysEl.appendChild(document.createElement('div')); }
         for (let day = 1; day <= daysInMonth; day++) {
             const dateCell = document.createElement('div');
             dateCell.className = 'calendar-day h-10 flex items-center justify-center cursor-pointer';
@@ -238,7 +232,7 @@
     nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1); });
     holidayForm.addEventListener('submit', handleFormSubmit);
 
-    // 解壓縮日誌功能
+    // --- 解壓縮日誌功能 ---
     const fetchLogsBtn = document.getElementById('fetch-logs-btn');
     const adminSecretInput = document.getElementById('admin-secret');
     const logsOutput = document.getElementById('logs-output');
@@ -298,10 +292,11 @@
     fetchLogsBtn.addEventListener('click', fetchAndDisplayLogs);
     adminSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') fetchAndDisplayLogs(); });
 
-    // 壓縮工具統計功能
+    // --- 壓縮工具統計功能 ---
     const fetchStatsBtn = document.getElementById('fetch-stats-btn');
     const statsSecretInput = document.getElementById('stats-secret');
     const statsOutput = document.getElementById('stats-output');
+    let activeTasksInterval = null; // ⭐ 新增：計時器變數
 
     async function fetchAndDisplayStats() {
         const secret = statsSecretInput.value.trim();
@@ -323,7 +318,6 @@
     function displayStatsOnPage(stats) {
         const successRate = stats.success_rate || 0;
         const progressColor = successRate >= 80 ? 'bg-green-500' : successRate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-        
         statsOutput.innerHTML = `
             <div class="stat-card">
                 <p class="text-sm opacity-80 mb-1">總任務數</p>
@@ -337,34 +331,83 @@
                     <div class="${progressColor} h-2 rounded-full transition-all" style="width: ${successRate}%"></div>
                 </div>
             </div>
-            <div class="bg-white p-6 rounded-lg shadow">
-                <p class="text-sm text-gray-500 mb-1">✅ 成功完成</p>
-                <p class="text-3xl font-bold text-green-600">${stats.completed_tasks}</p>
-            </div>
-            <div class="bg-white p-6 rounded-lg shadow">
-                <p class="text-sm text-gray-500 mb-1">❌ 失敗任務</p>
-                <p class="text-3xl font-bold text-red-600">${stats.failed_tasks}</p>
-            </div>
+            <div class="bg-white p-6 rounded-lg shadow"><p class="text-sm text-gray-500 mb-1">✅ 成功完成</p><p class="text-3xl font-bold text-green-600">${stats.completed_tasks}</p></div>
+            <div class="bg-white p-6 rounded-lg shadow"><p class="text-sm text-gray-500 mb-1">❌ 失敗任務</p><p class="text-3xl font-bold text-red-600">${stats.failed_tasks}</p></div>
             <div class="bg-white p-6 rounded-lg shadow col-span-1 md:col-span-2">
                 <p class="text-sm text-gray-500 mb-1">💾 儲存空間使用</p>
                 <div class="flex items-baseline gap-2">
-                    <p class="text-3xl font-bold text-purple-600">${stats.storage_used_mb}</p>
-                    <p class="text-gray-500">MB</p>
+                    <p class="text-3xl font-bold text-purple-600">${stats.storage_used_mb}</p><p class="text-gray-500">MB</p>
                     <span class="text-sm text-gray-400 ml-2">(共 ${(stats.storage_used_bytes / (1024 * 1024 * 1024)).toFixed(3)} GB)</span>
                 </div>
                 <div class="mt-4 bg-gray-200 rounded-full h-3">
-                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all" 
-                         style="width: ${Math.min((stats.storage_used_bytes / (512 * 1024 * 1024)) * 100, 100)}%"></div>
+                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all" style="width: ${Math.min((stats.storage_used_bytes / (512 * 1024 * 1024)) * 100, 100)}%"></div>
                 </div>
                 <p class="text-xs text-gray-500 mt-1">MongoDB 免費額度上限: 512 MB</p>
             </div>
         `;
+        // ⭐ 新增：加入即時任務監控
+        addActiveTasksMonitor();
+        updateActiveTasks();
+        if (activeTasksInterval) clearInterval(activeTasksInterval); // 清除舊的計時器
+        activeTasksInterval = setInterval(updateActiveTasks, 5000); // 每 5 秒更新一次
+    }
+
+    // ⭐ 新增：加入監控 UI 的函式
+    function addActiveTasksMonitor() {
+        const tasksDiv = document.createElement('div');
+        tasksDiv.className = 'col-span-1 md:col-span-2 bg-white p-6 rounded-lg shadow mt-6';
+        tasksDiv.innerHTML = `
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">⚡ 即時任務狀態</h3>
+                <span id="last-update" class="text-xs text-gray-500"></span>
+            </div>
+            <div id="active-tasks" class="space-y-4"></div>
+        `;
+        statsOutput.appendChild(tasksDiv);
+    }
+
+    // ⭐ 新增：更新即時任務的函式
+    async function updateActiveTasks() {
+        const secret = statsSecretInput.value.trim();
+        if (!secret) return;
+        try {
+            const response = await fetch(`${backendUrl}/admin/api/active-tasks?secret=${encodeURIComponent(secret)}`);
+            const tasks = await response.json();
+            if (!response.ok) throw new Error(tasks.error || '載入失敗');
+            const tasksContainer = document.getElementById('active-tasks');
+            const lastUpdate = document.getElementById('last-update');
+            if (!tasksContainer || !lastUpdate) return; // 如果元素不存在就停止
+            lastUpdate.textContent = `最後更新: ${new Date().toLocaleTimeString()}`;
+            tasksContainer.innerHTML = tasks.length ? tasks.map(task => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex-1 overflow-hidden mr-4">
+                        <p class="font-medium truncate">${task.params?.expected_filename || '未知檔案'}</p>
+                        <p class="text-sm text-gray-500">
+                            <span class="inline-block px-2 py-1 text-xs rounded ${
+                                task.status === '完成' ? 'bg-green-100 text-green-800' :
+                                task.status === '處理中' ? 'bg-blue-100 text-blue-800' :
+                                task.status === '等待中' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-gray-100 text-gray-800'
+                            }">${task.status}</span>
+                            <span class="ml-2">${new Date(task.created_at.$date || task.created_at).toLocaleString('zh-TW')}</span>
+                        </p>
+                    </div>
+                    <div class="text-right text-sm text-gray-500">
+                        ${task.ip_address ? `<p>來源: ${task.ip_address}</p>` : ''}
+                    </div>
+                </div>
+            `).join('') : '<p class="text-center text-gray-500 py-4">目前沒有進行中的任務</p>';
+        } catch (error) {
+            console.error('更新任務狀態失敗:', error);
+        }
     }
 
     fetchStatsBtn.addEventListener('click', fetchAndDisplayStats);
     statsSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') fetchAndDisplayStats(); });
 
-    // 資料庫狀態檢查
+    // --- 資料庫狀態檢查 ---
+    const dbStatusIndicator = document.getElementById('db-status-indicator');
+    const dbStatusText = document.getElementById('db-status-text');
     async function checkDbStatus() {
         try {
             const response = await fetch(`${backendUrl}/status`);
@@ -373,21 +416,20 @@
             if (data.db_status === 'connected') {
                 dbStatusIndicator.style.backgroundColor = '#22c55e';
                 dbStatusText.textContent = `連線正常 (${data.compressor_tasks_count || 0} 個任務)`;
-            } else { 
-                throw new Error(data.db_status || '連線狀態未知'); 
-            }
+            } else { throw new Error(data.db_status || '連線狀態未知'); }
         } catch (error) {
             dbStatusIndicator.style.backgroundColor = '#ef4444';
             dbStatusText.textContent = '連線異常';
         }
     }
 
-    // 初始載入
+    // --- 初始載入 ---
     document.addEventListener('DOMContentLoaded', () => {
         fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
         checkDbStatus();
-        setInterval(checkDbStatus, 30000); // 每30秒檢查一次連線狀態
+        setInterval(checkDbStatus, 10000); // 每30秒檢查一次連線狀態
     });
 </script>
 </body>
 </html>
+
