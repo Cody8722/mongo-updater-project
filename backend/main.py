@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 from bson import json_util
 import json
-from datetime import datetime, timedelta # ⭐ 新增 timedelta
+from datetime import datetime, timedelta
 
 # --- 初始化 ---
 load_dotenv()
@@ -43,19 +43,39 @@ except Exception as e:
 # --- API 路由 ---
 @app.route('/status', methods=['GET'])
 def get_status():
-    if client and db and tasks_collection is not None:
-        try:
-            client.admin.command('ping')
-            task_count = tasks_collection.count_documents({})
-            return jsonify({
-                "status": "ok", 
-                "db_status": "connected",
-                "compressor_tasks_count": task_count
-            }), 200
-        except Exception as e:
-            return jsonify({"status": "error", "db_status": "disconnected", "message": str(e)}), 500
-    else:
-        return jsonify({"status": "error", "db_status": "disconnected"}), 500
+    """
+    檢查與資料庫的連線狀態。(⭐ 已強化穩定性)
+    """
+    # 步驟 1: 檢查 MongoClient 物件是否存在
+    if client is None:
+        return jsonify({
+            "status": "error", 
+            "db_status": "disconnected", 
+            "message": "MongoDB client is not initialized. Check server logs for connection errors."
+        }), 500
+    
+    try:
+        # 步驟 2: 實際 ping 一次資料庫，確保連線是活躍的
+        client.admin.command('ping')
+        
+        task_count = 0
+        # 步驟 3: 獨立且安全地檢查 tasks_collection
+        if tasks_collection is not None:
+            try:
+                task_count = tasks_collection.count_documents({})
+            except Exception as e:
+                # 如果計算文件數失敗，在後台印出警告，但不讓程式崩潰
+                print(f"⚠️ 警告: 無法計算 tasks_collection 中的文件數量: {e}")
+        
+        return jsonify({
+            "status": "ok", 
+            "db_status": "connected",
+            "compressor_tasks_count": task_count
+        }), 200
+
+    except Exception as e:
+        # 如果連線 ping 失敗，回報連線中斷
+        return jsonify({"status": "error", "db_status": "disconnected", "message": str(e)}), 500
 
 @app.route('/get_holidays', methods=['GET'])
 def get_holidays():
@@ -131,7 +151,6 @@ def get_compression_stats():
         }), 200
     except Exception as e: return jsonify({"error": str(e)}), 500
 
-# ⭐ 新增：即時任務狀態 API
 @app.route('/admin/api/active-tasks', methods=['GET'])
 def get_active_tasks():
     """取得目前正在執行的壓縮/解壓縮任務狀態"""
