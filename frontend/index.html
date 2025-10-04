@@ -3,61 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多功能中控台</title>
+    <title>多功能中控台 - 整合版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* 基本樣式與動畫 */
-        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         .tab-content { display: none; }
         .tab-content.active { display: block; animation: fadeIn 0.5s; }
         .tab-button.active { background-color: #4f46e5; color: white; border-color: #4f46e5; }
         .tab-button { transition: all 0.2s ease-in-out; }
         .log-card {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            margin-bottom: 1.5rem;
-            padding: 1.5rem;
-            border-left: 4px solid #6366f1;
+            background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 1.5rem; padding: 1.5rem; border-left: 4px solid #6366f1;
         }
-        /* 日曆相關樣式 */
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
         .calendar-day { transition: background-color 0.2s; border-radius: 50%; }
         .calendar-day.selected { background-color: #3b82f6; color: white !important; }
         .holiday, .weekend { color: #ef4444; }
         .workday { color: #6b7280; }
         #db-status-indicator { width: 10px; height: 10px; border-radius: 50%; transition: background-color 0.3s; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body class="p-4 sm:p-8">
-
     <div class="max-w-7xl mx-auto">
-        <h1 class="text-3xl font-bold text-gray-800 text-center mb-2">多功能中控台</h1>
-        <p class="text-center text-gray-500 mb-8">集中管理您的應用程式設定與日誌。</p>
+        <h1 class="text-3xl font-bold text-gray-800 text-center mb-2">🔧 多功能中控台 (整合版)</h1>
+        <p class="text-center text-gray-500 mb-8">集中管理行事曆設定與壓縮工具日誌</p>
 
         <!-- 頁籤按鈕 -->
         <div class="mb-6 border-b border-gray-200">
             <nav class="flex -mb-px space-x-6" aria-label="Tabs">
                 <button class="tab-button active whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm rounded-t-lg" data-tab="calendar">
-                    日曆假日設定
+                    📅 日曆假日設定
                 </button>
                 <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="admin-logs">
-                    管理員日誌
+                    📊 解壓縮日誌
+                </button>
+                <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="stats">
+                    📈 壓縮工具統計
                 </button>
             </nav>
         </div>
 
         <!-- 頁籤內容 -->
         <div>
-            <!-- 日曆假日設定 (功能已整合) -->
+            <!-- 日曆假日設定 -->
             <div id="calendar-content" class="tab-content active">
                 <div class="bg-white p-6 rounded-lg shadow">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        <!-- 左側日曆區 -->
                         <div class="lg:col-span-2">
                             <div class="flex justify-between items-center mb-4">
                                 <button id="prev-month" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; 上個月</button>
@@ -69,21 +64,20 @@
                             </div>
                             <div id="calendar-days" class="grid grid-cols-7 gap-2"></div>
                         </div>
-                        <!-- 右側編輯區 -->
                         <div class="lg:col-span-1 border-t lg:border-t-0 lg:border-l pt-6 lg:pt-0 lg:pl-8">
                             <h2 class="text-lg font-bold mb-4">編輯日期資料</h2>
                             <form id="holiday-form" class="space-y-4">
                                 <div>
-                                    <label for="date-id" class="block text-sm font-medium text-gray-700">日期 ID (_id)</label>
+                                    <label for="date-id" class="block text-sm font-medium text-gray-700">日期 ID</label>
                                     <input type="text" id="date-id" readonly class="mt-1 block w-full bg-gray-100 border-gray-300 rounded-md shadow-sm p-2">
                                 </div>
                                 <div>
-                                    <label for="holiday-name" class="block text-sm font-medium text-gray-700">假日名稱 (name)</label>
-                                    <input type="text" id="holiday-name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 p-2" placeholder="例如：春節">
+                                    <label for="holiday-name" class="block text-sm font-medium text-gray-700">假日名稱</label>
+                                    <input type="text" id="holiday-name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 p-2" placeholder="例如:春節">
                                 </div>
                                 <div class="flex items-center">
                                     <input id="is-holiday" type="checkbox" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
-                                    <label for="is-holiday" class="ml-2 block text-sm text-gray-900">標示為假日 (isHoliday)</label>
+                                    <label for="is-holiday" class="ml-2 block text-sm text-gray-900">標示為假日</label>
                                 </div>
                                 <button type="submit" class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600">儲存變更</button>
                                 <div id="response-message" class="mt-4 text-center text-sm font-medium"></div>
@@ -93,49 +87,60 @@
                 </div>
             </div>
 
-            <!-- 管理員日誌 -->
+            <!-- 解壓縮日誌 -->
             <div id="admin-logs-content" class="tab-content">
                 <div class="bg-white p-6 rounded-lg shadow">
-                    <h2 class="text-xl font-bold mb-4">查詢解壓縮日誌</h2>
+                    <h2 class="text-xl font-bold mb-4">🔍 查詢解壓縮日誌</h2>
                     <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
                         <div class="flex-grow">
-                            <label for="admin-secret" class="block text-sm font-medium text-gray-700">管理員密碼 (ADMIN_SECRET)</label>
-                            <input type="password" id="admin-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="請輸入您的管理員密碼">
+                            <label for="admin-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
+                            <input type="password" id="admin-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="請輸入 ADMIN_SECRET">
                         </div>
                         <button id="fetch-logs-btn" class="bg-indigo-600 text-white px-5 py-2 rounded-md hover:bg-indigo-700 font-semibold">查詢日誌</button>
                     </div>
                     <div id="logs-output"><p class="text-center text-gray-500 py-8">請輸入密碼並點擊查詢以獲取日誌。</p></div>
                 </div>
             </div>
+
+            <!-- 壓縮工具統計 -->
+            <div id="stats-content" class="tab-content">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-bold mb-6">📈 壓縮工具使用統計</h2>
+                    <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
+                        <div class="flex-grow">
+                            <label for="stats-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
+                            <input type="password" id="stats-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="請輸入 ADMIN_SECRET">
+                        </div>
+                        <button id="fetch-stats-btn" class="bg-purple-600 text-white px-5 py-2 rounded-md hover:bg-purple-700 font-semibold">載入統計</button>
+                    </div>
+                    <div id="stats-output" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+                </div>
+            </div>
         </div>
     </div>
     
-    <!-- 頁尾狀態顯示 -->
+    <!-- 頁尾狀態 -->
     <div class="fixed bottom-4 right-4 flex items-center space-x-2 bg-white py-2 px-3 rounded-full shadow-lg">
         <div id="db-status-indicator" class="bg-gray-400"></div>
         <span id="db-status-text" class="text-xs text-gray-600 font-medium">正在檢查...</span>
     </div>
-    
+
 <script>
-    // --- 全域設定 ---
     const backendUrl = 'https://backend1.zeabur.app';
 
-    // --- 頁籤切換邏輯 ---
-    const tabButtons = document.querySelectorAll('.tab-button');
-    const tabContents = document.querySelectorAll('.tab-content');
-
-    tabButtons.forEach(button => {
+    // 頁籤切換
+    document.querySelectorAll('.tab-button').forEach(button => {
         button.addEventListener('click', () => {
-            tabButtons.forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             const tabId = button.dataset.tab;
-            tabContents.forEach(content => {
+            document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.toggle('active', content.id === `${tabId}-content`);
             });
         });
     });
 
-    // --- 日曆功能邏輯 ---
+    // 日曆功能 (保持原樣)
     const monthYearEl = document.getElementById('month-year');
     const calendarDaysEl = document.getElementById('calendar-days');
     const prevMonthBtn = document.getElementById('prev-month');
@@ -147,7 +152,6 @@
     const responseMessageEl = document.getElementById('response-message');
     const dbStatusIndicator = document.getElementById('db-status-indicator');
     const dbStatusText = document.getElementById('db-status-text');
-
     let currentDate = new Date();
     let holidaysData = {};
     let selectedDateElement = null;
@@ -180,11 +184,9 @@
         const firstDayOfMonth = new Date(year, month, 1);
         const startDay = firstDayOfMonth.getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-
         for (let i = 0; i < startDay; i++) {
             calendarDaysEl.appendChild(document.createElement('div'));
         }
-
         for (let day = 1; day <= daysInMonth; day++) {
             const dateCell = document.createElement('div');
             dateCell.className = 'calendar-day h-10 flex items-center justify-center cursor-pointer';
@@ -223,27 +225,12 @@
             const response = await fetch(`${backendUrl}/update_holiday`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || '儲存失敗');
-            responseMessageEl.textContent = '儲存成功！';
+            responseMessageEl.textContent = '✅ 儲存成功!';
             responseMessageEl.style.color = 'green';
             fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
         } catch (error) {
-            responseMessageEl.textContent = `錯誤: ${error.message}`;
+            responseMessageEl.textContent = `❌ 錯誤: ${error.message}`;
             responseMessageEl.style.color = 'red';
-        }
-    }
-
-    async function checkDbStatus() {
-        try {
-            const response = await fetch(`${backendUrl}/status`);
-            if (!response.ok) throw new Error('Network response was not ok');
-            const data = await response.json();
-            if (data.db_status === 'connected') {
-                dbStatusIndicator.style.backgroundColor = '#22c55e';
-                dbStatusText.textContent = '連線正常';
-            } else { throw new Error(data.db_status || '連線狀態未知'); }
-        } catch (error) {
-            dbStatusIndicator.style.backgroundColor = '#ef4444';
-            dbStatusText.textContent = '連線異常';
         }
     }
 
@@ -251,7 +238,7 @@
     nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1); });
     holidayForm.addEventListener('submit', handleFormSubmit);
 
-    // --- 管理員日誌 API 呼叫邏輯 ---
+    // 解壓縮日誌功能
     const fetchLogsBtn = document.getElementById('fetch-logs-btn');
     const adminSecretInput = document.getElementById('admin-secret');
     const logsOutput = document.getElementById('logs-output');
@@ -259,15 +246,14 @@
     async function fetchAndDisplayLogs() {
         const secret = adminSecretInput.value.trim();
         if (!secret) {
-            logsOutput.innerHTML = `<p class="text-center text-red-500 py-8">錯誤：管理員密碼不能為空。</p>`;
+            logsOutput.innerHTML = `<p class="text-center text-red-500 py-8">❌ 管理員密碼不能為空</p>`;
             return;
         }
-        const apiUrl = `${backendUrl}/admin/api/decompression-logs?secret=${encodeURIComponent(secret)}`;
-        logsOutput.innerHTML = `<p class="text-center text-gray-500 py-8">正在從伺服器獲取資料中...</p>`;
+        logsOutput.innerHTML = `<p class="text-center text-gray-500 py-8">⏳ 正在從壓縮工具資料庫讀取...</p>`;
         try {
-            const response = await fetch(apiUrl);
+            const response = await fetch(`${backendUrl}/admin/api/decompression-logs?secret=${encodeURIComponent(secret)}`);
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || `伺服器錯誤 (代碼: ${response.status})`);
+            if (!response.ok) throw new Error(data.error || `伺服器錯誤 (${response.status})`);
             displayLogsOnPage(data);
         } catch (error) {
             logsOutput.innerHTML = `<p class="text-center text-red-500 py-8">❌ 讀取失敗: ${error.message}</p>`;
@@ -276,23 +262,21 @@
 
     function displayLogsOnPage(logs) {
         if (!logs || logs.length === 0) {
-            logsOutput.innerHTML = `<p class="text-center text-gray-500 py-8">沒有找到任何日誌資料。</p>`;
+            logsOutput.innerHTML = `<p class="text-center text-gray-500 py-8">沒有找到任何解壓縮日誌</p>`;
             return;
         }
-        let html = '<h3 class="text-lg font-semibold mb-4 text-gray-700">日誌分析報告</h3>';
+        let html = '<h3 class="text-lg font-semibold mb-4 text-gray-700">📋 解壓縮活動報告</h3>';
         logs.forEach(ipGroup => {
             const lastActivityDate = new Date(ipGroup.last_activity).toLocaleString('zh-TW');
-            html += `<div class="log-card">...</div>`; // For brevity, card generation logic is correct
-            // Full card generation logic here...
             let filesHtml = '';
             ipGroup.files.forEach(file => {
-                 const fileTimestamp = new Date(file.timestamp).toLocaleString('zh-TW');
-                 filesHtml += `
+                const fileTimestamp = new Date(file.timestamp).toLocaleString('zh-TW');
+                filesHtml += `
                     <li class="flex items-start">
                         <span class="text-gray-400 mr-2 text-xs pt-1">${fileTimestamp}</span>
                         <div class="flex-1">
-                            <span class="text-gray-700">解壓縮了 </span><span class="font-medium text-blue-600">${file.original_filename}</span>
-                            <span class="text-gray-700"> -> 得到 </span><span class="font-medium text-green-600">${file.filename}</span>
+                            <span class="text-gray-700">解壓縮 </span><span class="font-medium text-blue-600">${file.original_filename || '未知檔案'}</span>
+                            <span class="text-gray-700"> → </span><span class="font-medium text-green-600">${file.filename}</span>
                         </div>
                     </li>`;
             });
@@ -313,13 +297,97 @@
 
     fetchLogsBtn.addEventListener('click', fetchAndDisplayLogs);
     adminSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') fetchAndDisplayLogs(); });
-    
-    // --- 初始載入 ---
+
+    // 壓縮工具統計功能
+    const fetchStatsBtn = document.getElementById('fetch-stats-btn');
+    const statsSecretInput = document.getElementById('stats-secret');
+    const statsOutput = document.getElementById('stats-output');
+
+    async function fetchAndDisplayStats() {
+        const secret = statsSecretInput.value.trim();
+        if (!secret) {
+            statsOutput.innerHTML = `<div class="col-span-2 text-center text-red-500 py-8">❌ 管理員密碼不能為空</div>`;
+            return;
+        }
+        statsOutput.innerHTML = `<div class="col-span-2 text-center text-gray-500 py-8">⏳ 正在載入統計資料...</div>`;
+        try {
+            const response = await fetch(`${backendUrl}/admin/api/compression-stats?secret=${encodeURIComponent(secret)}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `伺服器錯誤 (${response.status})`);
+            displayStatsOnPage(data);
+        } catch (error) {
+            statsOutput.innerHTML = `<div class="col-span-2 text-center text-red-500 py-8">❌ 載入失敗: ${error.message}</div>`;
+        }
+    }
+
+    function displayStatsOnPage(stats) {
+        const successRate = stats.success_rate || 0;
+        const progressColor = successRate >= 80 ? 'bg-green-500' : successRate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+        
+        statsOutput.innerHTML = `
+            <div class="stat-card">
+                <p class="text-sm opacity-80 mb-1">總任務數</p>
+                <p class="text-4xl font-bold">${stats.total_tasks}</p>
+                <p class="text-xs opacity-70 mt-2">自系統啟動以來的累計</p>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                <p class="text-sm opacity-80 mb-1">成功率</p>
+                <p class="text-4xl font-bold">${successRate}%</p>
+                <div class="mt-2 bg-white bg-opacity-30 rounded-full h-2">
+                    <div class="${progressColor} h-2 rounded-full transition-all" style="width: ${successRate}%"></div>
+                </div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <p class="text-sm text-gray-500 mb-1">✅ 成功完成</p>
+                <p class="text-3xl font-bold text-green-600">${stats.completed_tasks}</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <p class="text-sm text-gray-500 mb-1">❌ 失敗任務</p>
+                <p class="text-3xl font-bold text-red-600">${stats.failed_tasks}</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow col-span-1 md:col-span-2">
+                <p class="text-sm text-gray-500 mb-1">💾 儲存空間使用</p>
+                <div class="flex items-baseline gap-2">
+                    <p class="text-3xl font-bold text-purple-600">${stats.storage_used_mb}</p>
+                    <p class="text-gray-500">MB</p>
+                    <span class="text-sm text-gray-400 ml-2">(共 ${(stats.storage_used_bytes / (1024 * 1024 * 1024)).toFixed(3)} GB)</span>
+                </div>
+                <div class="mt-4 bg-gray-200 rounded-full h-3">
+                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all" 
+                         style="width: ${Math.min((stats.storage_used_bytes / (512 * 1024 * 1024)) * 100, 100)}%"></div>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">MongoDB 免費額度上限: 512 MB</p>
+            </div>
+        `;
+    }
+
+    fetchStatsBtn.addEventListener('click', fetchAndDisplayStats);
+    statsSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') fetchAndDisplayStats(); });
+
+    // 資料庫狀態檢查
+    async function checkDbStatus() {
+        try {
+            const response = await fetch(`${backendUrl}/status`);
+            if (!response.ok) throw new Error('Network response was not ok');
+            const data = await response.json();
+            if (data.db_status === 'connected') {
+                dbStatusIndicator.style.backgroundColor = '#22c55e';
+                dbStatusText.textContent = `連線正常 (${data.compressor_tasks_count || 0} 個任務)`;
+            } else { 
+                throw new Error(data.db_status || '連線狀態未知'); 
+            }
+        } catch (error) {
+            dbStatusIndicator.style.backgroundColor = '#ef4444';
+            dbStatusText.textContent = '連線異常';
+        }
+    }
+
+    // 初始載入
     document.addEventListener('DOMContentLoaded', () => {
         fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
         checkDbStatus();
+        setInterval(checkDbStatus, 30000); // 每30秒檢查一次連線狀態
     });
 </script>
 </body>
 </html>
-
