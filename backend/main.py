@@ -43,38 +43,21 @@ except Exception as e:
 # --- API 路由 ---
 @app.route('/status', methods=['GET'])
 def get_status():
-    """
-    檢查與資料庫的連線狀態。(⭐ 已強化穩定性)
-    """
-    # 步驟 1: 檢查 MongoClient 物件是否存在
-    if client is None:
-        return jsonify({
-            "status": "error", 
-            "db_status": "disconnected", 
-            "message": "MongoDB client is not initialized. Check server logs for connection errors."
-        }), 500
-    
+    task_count = 0
     try:
-        # 步驟 2: 實際 ping 一次資料庫，確保連線是活躍的
-        client.admin.command('ping')
-        
-        task_count = 0
-        # 步驟 3: 獨立且安全地檢查 tasks_collection
-        if tasks_collection is not None:
-            try:
+        if client:
+            client.admin.command('ping')
+            if tasks_collection is not None:
                 task_count = tasks_collection.count_documents({})
-            except Exception as e:
-                # 如果計算文件數失敗，在後台印出警告，但不讓程式崩潰
-                print(f"⚠️ 警告: 無法計算 tasks_collection 中的文件數量: {e}")
-        
-        return jsonify({
-            "status": "ok", 
-            "db_status": "connected",
-            "compressor_tasks_count": task_count
-        }), 200
-
+            
+            return jsonify({
+                "status": "ok", 
+                "db_status": "connected",
+                "compressor_tasks_count": task_count
+            }), 200
+        else:
+            raise Exception("MongoDB client is not initialized.")
     except Exception as e:
-        # 如果連線 ping 失敗，回報連線中斷
         return jsonify({"status": "error", "db_status": "disconnected", "message": str(e)}), 500
 
 @app.route('/get_holidays', methods=['GET'])
@@ -103,32 +86,6 @@ def update_holiday():
         return jsonify({"message": "資料無變動"}), 200
     except Exception as e: return jsonify({"error": str(e)}), 500
 
-@app.route('/admin/api/decompression-logs', methods=['GET'])
-def get_decompression_logs():
-    secret = request.args.get('secret')
-    if not secret or secret != ADMIN_SECRET: return jsonify({"error": "管理員密碼錯誤"}), 403
-    if tasks_collection is None: return jsonify({"error": "壓縮工具資料庫未連線"}), 500
-    try:
-        pipeline = [
-            {'$match': {'type': 'decompress', 'status': '完成', 'ip_address': {'$exists': True}}},
-            {'$sort': {'created_at': -1}},
-            {'$group': {
-                '_id': '$ip_address', 'count': {'$sum': 1},
-                'files': {'$push': {
-                    'filename': '$result_filename',
-                    'original_filename': '$params.expected_filename',
-                    'timestamp': '$created_at'
-                }},
-                'last_activity': {'$first': '$created_at'}
-            }},
-            {'$sort': {'last_activity': -1}},
-            {'$project': {'_id': 0, 'ip_address': '$_id', 'count': 1, 'files': 1, 'last_activity': 1}}
-        ]
-        logs = list(tasks_collection.aggregate(pipeline))
-        return json.loads(json_util.dumps(logs)), 200
-    except Exception as e:
-        return jsonify({"error": f"伺服器內部發生錯誤: {e}"}), 500
-
 @app.route('/admin/api/compression-stats', methods=['GET'])
 def get_compression_stats():
     secret = request.args.get('secret')
@@ -139,9 +96,8 @@ def get_compression_stats():
         failed_tasks = tasks_collection.count_documents({'status': '失敗'})
         
         fs_files = compressor_db['fs.files']
-        total_storage = fs_files.aggregate([{'$group': {'_id': None, 'total': {'$sum': '$length'}}}])
-        storage_used = list(total_storage)
-        storage_bytes = storage_used[0]['total'] if storage_used else 0
+        storage_agg = list(fs_files.aggregate([{'$group': {'_id': None, 'total': {'$sum': '$length'}}}]))
+        storage_bytes = storage_agg[0]['total'] if storage_agg else 0
         
         return jsonify({
             'total_tasks': total_tasks, 'completed_tasks': completed_tasks, 'failed_tasks': failed_tasks,
@@ -153,18 +109,16 @@ def get_compression_stats():
 
 @app.route('/admin/api/active-tasks', methods=['GET'])
 def get_active_tasks():
-    """取得目前正在執行的壓縮/解壓縮任務狀態"""
     secret = request.args.get('secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
     
     try:
-        # 查詢最近 10 分鐘內的任務
         recent_time = datetime.now() - timedelta(minutes=10)
         active_tasks = tasks_collection.find({
             'created_at': {'$gte': recent_time},
-            'status': {'$in': ['處理中', '等待中', '完成', '失敗']} # 也包含剛完成或失敗的
-        }).sort('created_at', -1).limit(20) # 最多顯示 20 筆
+            'status': {'$in': ['處理中', '等待中', '完成', '失敗']}
+        }).sort('created_at', -1).limit(20)
         
         return json.loads(json_util.dumps(list(active_tasks))), 200
     except Exception as e:
