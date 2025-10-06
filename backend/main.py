@@ -1,12 +1,11 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask_cors import CORS
 from bson import json_util
 import json
 from datetime import datetime, timedelta
-# ✅ P2 建議: 加入 Rate Limiting
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -14,20 +13,19 @@ from flask_limiter.util import get_remote_address
 load_dotenv()
 app = Flask(__name__)
 
-# ✅ P0 建議: 嚴格的 CORS 設定
-# 實際部署時，應將 'your-frontend-domain.zeabur.app' 換成您真實的前端網址
-# 也可以透過環境變數來設定，增加彈性
+# ✅ 安全性微調: 移除 "null" 來源，加入更精確的開發來源
 CORS(app, origins=[
-    "https://your-frontend-domain.zeabur.app", 
-    "http://localhost:3000", # 開發時使用
-    "null" # 允許本地 file:// 協議訪問
+    "https://mongo-updater-project.zeabur.app", # ⚠️ 部署前請務必換成您真實的前端網址
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
 ])
 
-# ✅ P2 建議: 加入 Rate Limiting
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
     default_limits=["200 per day", "50 per hour"]
+    # 說明: Flask-Limiter 預設使用記憶體儲存，對於管理後台已足夠。
+    # 若需跨容器/重啟的持續性限流，可考慮設定 storage_uri="redis://..."
 )
 
 
@@ -44,13 +42,12 @@ try:
     if not MONGO_URI:
         raise ValueError("錯誤:找不到 MONGO_URI 環境變數。")
     
-    # ✅ P2 建議: 加入連線池設定
     client = MongoClient(
         MONGO_URI, 
         serverSelectionTimeoutMS=5000,
-        maxPoolSize=10,  # 最大連線數
-        minPoolSize=2,   # 最小連線數
-        maxIdleTimeMS=45000  # 閒置連線保留時間 (45秒)
+        maxPoolSize=10,
+        minPoolSize=2,
+        maxIdleTimeMS=45000
     )
     client.admin.command('ping')
     print("✅ 成功連線到 MongoDB!")
@@ -65,6 +62,14 @@ try:
 
 except Exception as e:
     print(f"❌ 無法連線到 MongoDB: {e}")
+
+# ✅ 安全性建議: 強制 HTTPS (在支援 X-Forwarded-Proto 的反向代理後方)
+@app.before_request
+def force_https():
+    # 當不在偵錯模式，且請求不是安全或 X-Forwarded-Proto header 不是 https 時
+    if not app.debug and not request.is_secure and request.headers.get('x-forwarded-proto', 'http') != 'https':
+        url = request.url.replace('http://', 'https://', 1)
+        return redirect(url, code=301)
 
 # --- API 路由 ---
 @app.route('/status', methods=['GET'])
@@ -113,9 +118,8 @@ def update_holiday():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/admin/api/compression-stats', methods=['GET'])
-@limiter.limit("20 per minute") # ✅ P2 建議: 加入 Rate Limiting
+@limiter.limit("20 per minute")
 def get_compression_stats():
-    # ✅ P0 建議: 使用 HTTP Header 取得密碼
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET: return jsonify({"error": "未授權"}), 403
     try:
@@ -136,9 +140,8 @@ def get_compression_stats():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/admin/api/active-tasks', methods=['GET'])
-@limiter.limit("20 per minute") # ✅ P2 建議: 加入 Rate Limiting
+@limiter.limit("20 per minute")
 def get_active_tasks():
-    # ✅ P0 建議: 使用 HTTP Header 取得密碼
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
