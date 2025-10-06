@@ -6,11 +6,30 @@ from flask_cors import CORS
 from bson import json_util
 import json
 from datetime import datetime, timedelta
+# ✅ P2 建議: 加入 Rate Limiting
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # --- 初始化 ---
 load_dotenv()
 app = Flask(__name__)
-CORS(app)
+
+# ✅ P0 建議: 嚴格的 CORS 設定
+# 實際部署時，應將 'your-frontend-domain.zeabur.app' 換成您真實的前端網址
+# 也可以透過環境變數來設定，增加彈性
+CORS(app, origins=[
+    "https://your-frontend-domain.zeabur.app", 
+    "http://localhost:3000", # 開發時使用
+    "null" # 允許本地 file:// 協議訪問
+])
+
+# ✅ P2 建議: 加入 Rate Limiting
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"]
+)
+
 
 # --- 資料庫連線 ---
 MONGO_URI = os.getenv('MONGO_URI')
@@ -25,7 +44,14 @@ try:
     if not MONGO_URI:
         raise ValueError("錯誤:找不到 MONGO_URI 環境變數。")
     
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    # ✅ P2 建議: 加入連線池設定
+    client = MongoClient(
+        MONGO_URI, 
+        serverSelectionTimeoutMS=5000,
+        maxPoolSize=10,  # 最大連線數
+        minPoolSize=2,   # 最小連線數
+        maxIdleTimeMS=45000  # 閒置連線保留時間 (45秒)
+    )
     client.admin.command('ping')
     print("✅ 成功連線到 MongoDB!")
 
@@ -87,8 +113,10 @@ def update_holiday():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/admin/api/compression-stats', methods=['GET'])
+@limiter.limit("20 per minute") # ✅ P2 建議: 加入 Rate Limiting
 def get_compression_stats():
-    secret = request.args.get('secret')
+    # ✅ P0 建議: 使用 HTTP Header 取得密碼
+    secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET: return jsonify({"error": "未授權"}), 403
     try:
         total_tasks = tasks_collection.count_documents({})
@@ -108,8 +136,10 @@ def get_compression_stats():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/admin/api/active-tasks', methods=['GET'])
+@limiter.limit("20 per minute") # ✅ P2 建議: 加入 Rate Limiting
 def get_active_tasks():
-    secret = request.args.get('secret')
+    # ✅ P0 建議: 使用 HTTP Header 取得密碼
+    secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
     
