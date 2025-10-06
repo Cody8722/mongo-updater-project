@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>多功能中控台 - 整合版</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn/tailwindcss.com"></script>
+    <!-- ✅ P2 建議: 使後端 URL 可配置 -->
+    <script>
+        // 您可以在此處或通過其他方式動態設定後端 URL
+        window.BACKEND_URL = 'https://backend1.zeabur.app';
+    </script>
     <style>
         body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         .tab-content { display: none; }
@@ -106,10 +111,17 @@
     </div>
 
 <script>
-    const backendUrl = 'https://backend1.zeabur.app';
+    // ✅ P2 建議: 從 window 物件讀取 URL
+    const backendUrl = window.BACKEND_URL || 'https://backend1.zeabur.app';
 
     let statsIntervalId = null;
     let activeTasksIntervalId = null;
+    
+    // ✅ P1 建議: 輪詢錯誤處理
+    let statsErrorCount = 0;
+    let tasksErrorCount = 0;
+    const MAX_ERRORS = 3;
+
 
     // 頁籤切換
     document.querySelectorAll('.tab-button').forEach(button => {
@@ -160,10 +172,14 @@
     async function startStatsMonitoring() {
         clearInterval(statsIntervalId);
         clearInterval(activeTasksIntervalId);
+        statsErrorCount = 0; // 重置錯誤計數
+        tasksErrorCount = 0;
+
         const success = await fetchAndDisplayStats(true);
         if (success) {
-            statsIntervalId = setInterval(() => fetchAndDisplayStats(false), 5000);
-            activeTasksIntervalId = setInterval(updateActiveTasks, 5000);
+            // ✅ P1 建議: 調整輪詢頻率
+            statsIntervalId = setInterval(() => fetchAndDisplayStats(false), 30000); // 統計資料每 30 秒更新
+            activeTasksIntervalId = setInterval(updateActiveTasks, 5000); // 活躍任務每 5 秒更新
         }
     }
     
@@ -177,18 +193,35 @@
             statsOutput.innerHTML = `<div class="col-span-2 text-center text-gray-500 py-8">⏳ 正在載入統計資料...</div>`;
         }
         try {
-            const response = await fetch(`${backendUrl}/admin/api/compression-stats?secret=${encodeURIComponent(secret)}`);
+            // ✅ P0 建議: 使用 HTTP Header 傳遞密碼
+            const response = await fetch(`${backendUrl}/admin/api/compression-stats`, {
+                headers: { 'X-Admin-Secret': secret }
+            });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || `伺服器錯誤 (${response.status})`);
+            
+            statsErrorCount = 0; // 成功後重置錯誤計數
             displayStatsOnPage(data);
             return true;
         } catch (error) {
+            statsErrorCount++; // 累計錯誤次數
+            console.error(`統計資料刷新失敗 (第 ${statsErrorCount} 次):`, error);
+            
+            // ✅ P1 建議: 輪詢錯誤處理
+            if (statsErrorCount >= MAX_ERRORS) {
+                clearInterval(statsIntervalId);
+                clearInterval(activeTasksIntervalId);
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'col-span-2 text-center text-red-500 mt-4 py-4';
+                errorDiv.innerHTML = `❌ 連續失敗 ${MAX_ERRORS} 次，已停止自動刷新。<br>請檢查密碼或網路連線。`;
+                if(document.getElementById('stats-output')) {
+                    document.getElementById('stats-output').appendChild(errorDiv);
+                }
+            }
+            // 只在初次載入時覆蓋整個畫面
             if (isInitialLoad) {
                  statsOutput.innerHTML = `<div class="col-span-2 text-center text-red-500 py-8">❌ 載入失敗: ${error.message}</div>`;
             }
-            console.error("統計資料刷新失敗:", error);
-            clearInterval(statsIntervalId);
-            clearInterval(activeTasksIntervalId);
             return false;
         }
     }
@@ -222,9 +255,14 @@
         const secret = statsSecretInput.value.trim();
         if (!secret) return;
         try {
-            const response = await fetch(`${backendUrl}/admin/api/active-tasks?secret=${encodeURIComponent(secret)}`);
+            // ✅ P0 建議: 使用 HTTP Header 傳遞密碼
+            const response = await fetch(`${backendUrl}/admin/api/active-tasks`, {
+                headers: { 'X-Admin-Secret': secret }
+            });
             const tasks = await response.json();
             if (!response.ok) throw new Error(tasks.error || '載入失敗');
+            
+            tasksErrorCount = 0; // 成功後重置錯誤計數
             const tasksContainer = document.getElementById('active-tasks');
             const lastUpdate = document.getElementById('last-update');
             if(!tasksContainer || !lastUpdate) return;
@@ -234,7 +272,14 @@
                 return `<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div class="flex-1"><p class="font-medium">${task.params?.expected_filename || '未知檔案'}</p><p class="text-sm text-gray-500"><span class="inline-block px-2 py-1 text-xs rounded ${statusClass}">${task.status}</span><span class="ml-2">${new Date(task.created_at).toLocaleString('zh-TW')}</span></p></div><div class="text-right text-sm text-gray-500">${task.ip_address ? `<p>來源: ${task.ip_address}</p>` : ''}</div></div>`;
             }).join('') : '<p class="text-center text-gray-500 py-4">目前沒有進行中的任務</p>';
         } catch (error) {
-            console.error('更新任務狀態失敗:', error);
+            tasksErrorCount++;
+            console.error(`更新任務狀態失敗 (第 ${tasksErrorCount} 次):`, error);
+            // ✅ P1 建議: 輪詢錯誤處理
+            if (tasksErrorCount >= MAX_ERRORS) {
+                 clearInterval(activeTasksIntervalId);
+                 // 這裡只在 console 提示，避免過度干擾 UI
+                 console.error("即時任務連續失敗次數過多，已停止自動刷新。");
+            }
         }
     }
 
