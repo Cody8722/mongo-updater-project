@@ -4,11 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>多功能中控台 - 整合版</title>
-    <!-- ⭐️ 修正: 使用正確的 Tailwind CSS CDN 網址 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- ✅ P2 建議: 使後端 URL 可配置 -->
     <script>
-        // 您可以在此處或通過其他方式動態設定後端 URL
         window.BACKEND_URL = 'https://backend1.zeabur.app';
     </script>
     <style>
@@ -112,17 +109,13 @@
     </div>
 
 <script>
-    // ✅ P2 建議: 從 window 物件讀取 URL
     const backendUrl = window.BACKEND_URL || 'https://backend1.zeabur.app';
 
     let statsIntervalId = null;
     let activeTasksIntervalId = null;
-    
-    // ✅ P1 建議: 輪詢錯誤處理
     let statsErrorCount = 0;
     let tasksErrorCount = 0;
     const MAX_ERRORS = 3;
-
 
     // 頁籤切換
     document.querySelectorAll('.tab-button').forEach(button => {
@@ -173,14 +166,19 @@
     async function startStatsMonitoring() {
         clearInterval(statsIntervalId);
         clearInterval(activeTasksIntervalId);
-        statsErrorCount = 0; // 重置錯誤計數
+        statsErrorCount = 0;
         tasksErrorCount = 0;
+
+        // ✅ UX 改善: 儲存密碼到 sessionStorage
+        const secret = statsSecretInput.value.trim();
+        if (secret) {
+            sessionStorage.setItem('adminSecret', secret);
+        }
 
         const success = await fetchAndDisplayStats(true);
         if (success) {
-            // ✅ P1 建議: 調整輪詢頻率
-            statsIntervalId = setInterval(() => fetchAndDisplayStats(false), 30000); // 統計資料每 30 秒更新
-            activeTasksIntervalId = setInterval(updateActiveTasks, 5000); // 活躍任務每 5 秒更新
+            statsIntervalId = setInterval(() => fetchAndDisplayStats(false), 30000);
+            activeTasksIntervalId = setInterval(updateActiveTasks, 5000);
         }
     }
     
@@ -194,21 +192,19 @@
             statsOutput.innerHTML = `<div class="col-span-2 text-center text-gray-500 py-8">⏳ 正在載入統計資料...</div>`;
         }
         try {
-            // ✅ P0 建議: 使用 HTTP Header 傳遞密碼
             const response = await fetch(`${backendUrl}/admin/api/compression-stats`, {
                 headers: { 'X-Admin-Secret': secret }
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || `伺服器錯誤 (${response.status})`);
             
-            statsErrorCount = 0; // 成功後重置錯誤計數
+            statsErrorCount = 0;
             displayStatsOnPage(data);
             return true;
         } catch (error) {
-            statsErrorCount++; // 累計錯誤次數
+            statsErrorCount++;
             console.error(`統計資料刷新失敗 (第 ${statsErrorCount} 次):`, error);
             
-            // ✅ P1 建議: 輪詢錯誤處理
             if (statsErrorCount >= MAX_ERRORS) {
                 clearInterval(statsIntervalId);
                 clearInterval(activeTasksIntervalId);
@@ -219,7 +215,6 @@
                     document.getElementById('stats-output').appendChild(errorDiv);
                 }
             }
-            // 只在初次載入時覆蓋整個畫面
             if (isInitialLoad) {
                  statsOutput.innerHTML = `<div class="col-span-2 text-center text-red-500 py-8">❌ 載入失敗: ${error.message}</div>`;
             }
@@ -256,14 +251,13 @@
         const secret = statsSecretInput.value.trim();
         if (!secret) return;
         try {
-            // ✅ P0 建議: 使用 HTTP Header 傳遞密碼
             const response = await fetch(`${backendUrl}/admin/api/active-tasks`, {
                 headers: { 'X-Admin-Secret': secret }
             });
             const tasks = await response.json();
             if (!response.ok) throw new Error(tasks.error || '載入失敗');
             
-            tasksErrorCount = 0; // 成功後重置錯誤計數
+            tasksErrorCount = 0;
             const tasksContainer = document.getElementById('active-tasks');
             const lastUpdate = document.getElementById('last-update');
             if(!tasksContainer || !lastUpdate) return;
@@ -275,10 +269,8 @@
         } catch (error) {
             tasksErrorCount++;
             console.error(`更新任務狀態失敗 (第 ${tasksErrorCount} 次):`, error);
-            // ✅ P1 建議: 輪詢錯誤處理
             if (tasksErrorCount >= MAX_ERRORS) {
                  clearInterval(activeTasksIntervalId);
-                 // 這裡只在 console 提示，避免過度干擾 UI
                  console.error("即時任務連續失敗次數過多，已停止自動刷新。");
             }
         }
@@ -294,6 +286,12 @@
 
     // --- 初始載入 ---
     document.addEventListener('DOMContentLoaded', () => {
+        // ✅ UX 改善: 頁面載入時自動填入已儲存的密碼
+        const savedSecret = sessionStorage.getItem('adminSecret');
+        if (savedSecret) {
+            statsSecretInput.value = savedSecret;
+        }
+
         fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
         checkDbStatus();
         setInterval(checkDbStatus, 30000);
