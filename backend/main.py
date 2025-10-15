@@ -145,15 +145,105 @@ def get_active_tasks():
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
-    
+
     try:
         recent_time = datetime.now() - timedelta(minutes=10)
         active_tasks = tasks_collection.find({
             'created_at': {'$gte': recent_time},
             'status': {'$in': ['處理中', '等待中', '完成', '失敗']}
         }).sort('created_at', -1).limit(20)
-        
+
         return json.loads(json_util.dumps(list(active_tasks))), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/all-files', methods=['GET'])
+@limiter.limit("20 per minute")
+def get_all_files():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+
+    try:
+        # 獲取查詢參數
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 50))
+        skip = (page - 1) * limit
+
+        # 計算總數
+        total_count = tasks_collection.count_documents({'type': 'compress', 'status': '完成'})
+
+        # 獲取壓縮任務列表（只取完成的，因為只有完成的才有檔案）
+        tasks = tasks_collection.find({
+            'type': 'compress',
+            'status': '完成',
+            'result_file_id': {'$exists': True}
+        }).sort('created_at', -1).skip(skip).limit(limit)
+
+        files = []
+        fs_files = compressor_db['fs.files']
+
+        for task in tasks:
+            # 獲取檔案大小
+            file_info = fs_files.find_one({'_id': task.get('result_file_id')})
+            files.append({
+                '_id': str(task['_id']),
+                'filename': task.get('result_filename', '未知'),
+                'original_filename': task.get('params', {}).get('raw_filename', '未知'),
+                'created_at': task.get('created_at'),
+                'file_size': file_info.get('length', 0) if file_info else 0,
+                'ip_address': task.get('ip_address', '未知')
+            })
+
+        return jsonify({
+            'files': files,
+            'total': total_count,
+            'page': page,
+            'limit': limit,
+            'total_pages': (total_count + limit - 1) // limit
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/batch-delete', methods=['POST'])
+@limiter.limit("5 per minute")
+def admin_batch_delete():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+
+    try:
+        data = request.get_json()
+        task_ids = data.get('task_ids', [])
+
+        if not task_ids:
+            return jsonify({"error": "未提供任務 ID"}), 400
+
+        # 轉換字串 ID 為 ObjectId
+        from bson.objectid import ObjectId
+        object_ids = [ObjectId(tid) for tid in task_ids]
+
+        # 找到所有對應的任務
+        tasks = tasks_collection.find({'_id': {'$in': object_ids}})
+
+        deleted_count = 0
+        fs_files = compressor_db['fs.files']
+        fs_chunks = compressor_db['fs.chunks']
+
+        for task in tasks:
+            if task.get('result_file_id'):
+                # 刪除 GridFS 檔案
+                fs_files.delete_one({'_id': task['result_file_id']})
+                fs_chunks.delete_many({'files_id': task['result_file_id']})
+
+            # 刪除任務記錄
+            tasks_collection.delete_one({'_id': task['_id']})
+            deleted_count += 1
+
+        return jsonify({
+            "success": True,
+            "deleted_count": deleted_count
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
