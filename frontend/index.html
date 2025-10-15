@@ -26,10 +26,29 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="p-4 sm:p-8">
-    <div class="max-w-7xl mx-auto">
-        <h1 class="text-3xl font-bold text-gray-800 text-center mb-2">🔧 多功能中控台 (整合版)</h1>
-        <p class="text-center text-gray-500 mb-8">集中管理行事曆設定與壓縮工具統計</p>
+<body class="p-0">
+    <!-- 統一導航列 -->
+    <nav class="bg-indigo-600 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-8">
+                    <div class="flex-shrink-0">
+                        <span class="text-xl font-bold">🛠️ 工具集</span>
+                    </div>
+                    <div class="hidden md:flex space-x-4">
+                        <a href="https://shift-schedule-generators.zeabur.app/" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition">📅 班表工具</a>
+                        <a href="https://zip.zeabur.app/" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition">📦 壓縮工具</a>
+                        <a href="https://mongo-updater-project.zeabur.app/" class="px-3 py-2 rounded-md text-sm font-medium bg-indigo-800">🔧 中控台</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="p-4 sm:p-8">
+        <div class="max-w-7xl mx-auto">
+            <h1 class="text-3xl font-bold text-gray-800 text-center mb-2">🔧 多功能中控台 (整合版)</h1>
+            <p class="text-center text-gray-500 mb-8">集中管理行事曆設定與壓縮工具統計</p>
 
         <!-- 頁籤按鈕 -->
         <div class="mb-6 border-b border-gray-200">
@@ -42,6 +61,9 @@
                 </button>
                 <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="cleanup">
                     🗑️ 檔案管理
+                </button>
+                <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="monitor">
+                    📊 系統監控
                 </button>
             </nav>
         </div>
@@ -140,6 +162,64 @@
 
                     <div id="cleanup-message" class="text-center py-8 text-gray-500">
                         請輸入管理員密碼並載入檔案列表
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系統監控 -->
+            <div id="monitor-content" class="tab-content">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold">📊 系統監控與健康檢查</h2>
+                        <button id="refresh-health-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 font-semibold">
+                            🔄 刷新狀態
+                        </button>
+                    </div>
+
+                    <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
+                        <div class="flex-grow">
+                            <label for="monitor-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
+                            <input type="password" id="monitor-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="請輸入 ADMIN_SECRET">
+                        </div>
+                        <button id="start-monitor-btn" class="bg-indigo-600 text-white px-5 py-2 rounded-md hover:bg-indigo-700 font-semibold">開始監控</button>
+                    </div>
+
+                    <div id="monitor-container" class="hidden">
+                        <!-- 整體狀態 -->
+                        <div id="overall-status" class="mb-6 p-4 rounded-lg border-2">
+                            <!-- Overall status will be loaded here -->
+                        </div>
+
+                        <!-- 服務狀態 -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div id="mongodb-status" class="bg-white p-6 rounded-lg shadow border">
+                                <h3 class="text-lg font-semibold mb-2">🗄️ MongoDB</h3>
+                                <div class="service-status">載入中...</div>
+                            </div>
+                            <div id="compressor-status" class="bg-white p-6 rounded-lg shadow border">
+                                <h3 class="text-lg font-semibold mb-2">📦 壓縮工具</h3>
+                                <div class="service-status">載入中...</div>
+                            </div>
+                            <div id="schedule-status" class="bg-white p-6 rounded-lg shadow border">
+                                <h3 class="text-lg font-semibold mb-2">📅 班表工具</h3>
+                                <div class="service-status">載入中...</div>
+                            </div>
+                        </div>
+
+                        <!-- 儲存空間資訊 -->
+                        <div id="storage-info" class="bg-white p-6 rounded-lg shadow mb-6">
+                            <h3 class="text-lg font-semibold mb-4">💾 儲存空間狀態</h3>
+                            <div id="storage-details">載入中...</div>
+                        </div>
+
+                        <!-- 最後更新時間 -->
+                        <div class="text-center text-sm text-gray-500">
+                            <span id="last-health-check">尚未檢查</span>
+                        </div>
+                    </div>
+
+                    <div id="monitor-message" class="text-center py-8 text-gray-500">
+                        請輸入管理員密碼並開始監控
                     </div>
                 </div>
             </div>
@@ -521,6 +601,166 @@
     loadFilesBtn.addEventListener('click', () => loadFiles(1));
     cleanupSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') loadFiles(1); });
 
+    // --- 系統監控功能 ---
+    const startMonitorBtn = document.getElementById('start-monitor-btn');
+    const refreshHealthBtn = document.getElementById('refresh-health-btn');
+    const monitorSecretInput = document.getElementById('monitor-secret');
+    const monitorContainer = document.getElementById('monitor-container');
+    const monitorMessage = document.getElementById('monitor-message');
+    const overallStatusDiv = document.getElementById('overall-status');
+    const mongodbStatusDiv = document.getElementById('mongodb-status');
+    const compressorStatusDiv = document.getElementById('compressor-status');
+    const scheduleStatusDiv = document.getElementById('schedule-status');
+    const storageDetailsDiv = document.getElementById('storage-details');
+    const lastHealthCheckSpan = document.getElementById('last-health-check');
+
+    let healthCheckInterval = null;
+
+    async function loadSystemHealth() {
+        const secret = monitorSecretInput.value.trim();
+        if (!secret) {
+            monitorMessage.textContent = '❌ 請輸入管理員密碼';
+            monitorMessage.classList.remove('text-gray-500');
+            monitorMessage.classList.add('text-red-500');
+            return;
+        }
+
+        // 儲存密碼
+        if (secret) {
+            sessionStorage.setItem('adminSecret', secret);
+        }
+
+        try {
+            const response = await fetch(`${backendUrl}/admin/api/system-health`, {
+                headers: { 'X-Admin-Secret': secret }
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '載入失敗');
+
+            renderSystemHealth(data);
+            monitorContainer.classList.remove('hidden');
+            monitorMessage.classList.add('hidden');
+        } catch (error) {
+            monitorMessage.textContent = `❌ ${error.message}`;
+            monitorMessage.classList.add('text-red-500');
+            monitorContainer.classList.add('hidden');
+        }
+    }
+
+    function renderSystemHealth(data) {
+        // 整體狀態
+        const isHealthy = data.overall_status === 'healthy';
+        overallStatusDiv.className = `mb-6 p-4 rounded-lg border-2 ${isHealthy ? 'bg-green-50 border-green-500' : 'bg-yellow-50 border-yellow-500'}`;
+        overallStatusDiv.innerHTML = `
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="text-3xl">${isHealthy ? '✅' : '⚠️'}</div>
+                    <div>
+                        <p class="text-lg font-bold ${isHealthy ? 'text-green-800' : 'text-yellow-800'}">${isHealthy ? '系統運作正常' : '系統部分降級'}</p>
+                        <p class="text-sm ${isHealthy ? 'text-green-600' : 'text-yellow-600'}">所有服務已檢查</p>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500">更新時間: ${new Date(data.timestamp).toLocaleTimeString('zh-TW')}</p>
+            </div>
+        `;
+
+        // MongoDB 狀態
+        const dbHealthy = data.database.status === 'healthy';
+        mongodbStatusDiv.innerHTML = `
+            <h3 class="text-lg font-semibold mb-2">🗄️ MongoDB</h3>
+            <div class="space-y-2">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 rounded-full ${dbHealthy ? 'bg-green-500' : 'bg-red-500'}"></div>
+                    <span class="font-medium">${dbHealthy ? '正常運作' : '連線異常'}</span>
+                </div>
+                <p class="text-sm text-gray-600">${data.database.message}</p>
+                ${data.database.total_tasks !== undefined ? `<p class="text-xs text-gray-500">任務總數: ${data.database.total_tasks}</p>` : ''}
+            </div>
+        `;
+
+        // 壓縮工具狀態
+        const compressorService = data.services.compressor || {};
+        const compressorHealthy = compressorService.status === 'healthy';
+        compressorStatusDiv.innerHTML = `
+            <h3 class="text-lg font-semibold mb-2">📦 壓縮工具</h3>
+            <div class="space-y-2">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 rounded-full ${compressorHealthy ? 'bg-green-500' : 'bg-red-500'}"></div>
+                    <span class="font-medium">${compressorHealthy ? '正常運作' : '服務異常'}</span>
+                </div>
+                <p class="text-sm text-gray-600">${compressorService.message || '未知'}</p>
+                ${compressorService.response_time_ms ? `<p class="text-xs text-gray-500">回應時間: ${compressorService.response_time_ms}ms</p>` : ''}
+                ${compressorService.url ? `<p class="text-xs text-gray-400 truncate">${compressorService.url}</p>` : ''}
+            </div>
+        `;
+
+        // 班表工具狀態
+        const scheduleService = data.services.schedule || {};
+        const scheduleHealthy = scheduleService.status === 'healthy';
+        scheduleStatusDiv.innerHTML = `
+            <h3 class="text-lg font-semibold mb-2">📅 班表工具</h3>
+            <div class="space-y-2">
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 rounded-full ${scheduleHealthy ? 'bg-green-500' : 'bg-red-500'}"></div>
+                    <span class="font-medium">${scheduleHealthy ? '正常運作' : '服務異常'}</span>
+                </div>
+                <p class="text-sm text-gray-600">${scheduleService.message || '未知'}</p>
+                ${scheduleService.response_time_ms ? `<p class="text-xs text-gray-500">回應時間: ${scheduleService.response_time_ms}ms</p>` : ''}
+                ${scheduleService.url ? `<p class="text-xs text-gray-400 truncate">${scheduleService.url}</p>` : ''}
+            </div>
+        `;
+
+        // 儲存空間資訊
+        if (data.storage && Object.keys(data.storage).length > 0) {
+            const storage = data.storage;
+            const warningColors = {
+                'normal': 'bg-blue-500',
+                'warning': 'bg-yellow-500',
+                'danger': 'bg-orange-500',
+                'full': 'bg-red-500'
+            };
+            const barColor = warningColors[storage.warning_level] || 'bg-blue-500';
+
+            storageDetailsDiv.innerHTML = `
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-2xl font-bold">${storage.used_mb.toFixed(2)} MB <span class="text-sm font-normal text-gray-500">/ ${storage.total_mb} MB</span></p>
+                            <p class="text-sm text-gray-600">已使用 ${storage.usage_percent.toFixed(1)}%</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm text-gray-600">可用空間</p>
+                            <p class="text-lg font-semibold">${storage.available_mb.toFixed(2)} MB</p>
+                        </div>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4">
+                        <div class="${barColor} h-4 rounded-full transition-all" style="width: ${storage.usage_percent}%"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-gray-500">
+                        <span>檔案數量: ${storage.file_count}</span>
+                        <span>警告等級: ${storage.warning_level === 'normal' ? '正常' : storage.warning_level === 'warning' ? '警告' : storage.warning_level === 'danger' ? '危險' : '已滿'}</span>
+                    </div>
+                </div>
+            `;
+        } else {
+            storageDetailsDiv.innerHTML = '<p class="text-gray-500">無法取得儲存空間資訊</p>';
+        }
+
+        // 更新最後檢查時間
+        lastHealthCheckSpan.textContent = `最後檢查: ${new Date().toLocaleTimeString('zh-TW')}`;
+    }
+
+    function startHealthMonitoring() {
+        loadSystemHealth();
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = setInterval(loadSystemHealth, 30000); // 每 30 秒刷新
+    }
+
+    startMonitorBtn.addEventListener('click', startHealthMonitoring);
+    refreshHealthBtn.addEventListener('click', loadSystemHealth);
+    monitorSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') startHealthMonitoring(); });
+
     // --- 資料庫狀態檢查 ---
     const dbStatusIndicator = document.getElementById('db-status-indicator');
     const dbStatusText = document.getElementById('db-status-text');
@@ -533,6 +773,7 @@
         if (savedSecret) {
             statsSecretInput.value = savedSecret;
             cleanupSecretInput.value = savedSecret;
+            monitorSecretInput.value = savedSecret;
         }
 
         fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
