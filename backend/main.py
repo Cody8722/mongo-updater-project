@@ -25,7 +25,7 @@ CORS(app, origins=[
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
-    default_limits=["10000 per day", "1000 per hour"]
+    default_limits=[]  # 暫時停用全局限流
     # 說明: Flask-Limiter 預設使用記憶體儲存，對於管理後台已足夠。
     # 若需跨容器/重啟的持續性限流，可考慮設定 storage_uri="redis://..."
 )
