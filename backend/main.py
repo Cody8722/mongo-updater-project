@@ -83,13 +83,13 @@ def force_https():
 def get_status():
     task_count = 0
     try:
-        if client:
+        if client is not None:
             client.admin.command('ping')
             if tasks_collection is not None:
                 task_count = tasks_collection.count_documents({})
-            
+
             return jsonify({
-                "status": "ok", 
+                "status": "ok",
                 "db_status": "connected",
                 "compressor_tasks_count": task_count
             }), 200
@@ -129,15 +129,16 @@ def update_holiday():
 def get_compression_stats():
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET: return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None or compressor_db is None: return jsonify({"error": "資料庫未初始化"}), 500
     try:
         total_tasks = tasks_collection.count_documents({})
         completed_tasks = tasks_collection.count_documents({'status': '完成'})
         failed_tasks = tasks_collection.count_documents({'status': '失敗'})
-        
+
         fs_files = compressor_db['fs.files']
         storage_agg = list(fs_files.aggregate([{'$group': {'_id': None, 'total': {'$sum': '$length'}}}]))
         storage_bytes = storage_agg[0]['total'] if storage_agg else 0
-        
+
         return jsonify({
             'total_tasks': total_tasks, 'completed_tasks': completed_tasks, 'failed_tasks': failed_tasks,
             'success_rate': round((completed_tasks / total_tasks * 100) if total_tasks > 0 else 0, 2),
@@ -152,6 +153,8 @@ def get_active_tasks():
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None:
+        return jsonify({"error": "資料庫未初始化"}), 500
 
     try:
         recent_time = datetime.now() - timedelta(minutes=10)
@@ -170,6 +173,8 @@ def get_all_files():
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None or compressor_db is None:
+        return jsonify({"error": "資料庫未初始化"}), 500
 
     try:
         # 獲取查詢參數
@@ -218,6 +223,8 @@ def admin_batch_delete():
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
         return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None or compressor_db is None:
+        return jsonify({"error": "資料庫未初始化"}), 500
 
     try:
         data = request.get_json()
@@ -270,14 +277,18 @@ def get_system_health():
 
     # 檢查 MongoDB
     try:
-        client.admin.command('ping')
-        health_data['database']['status'] = 'healthy'
-        health_data['database']['message'] = '連線正常'
+        if client is not None:
+            client.admin.command('ping')
+            health_data['database']['status'] = 'healthy'
+            health_data['database']['message'] = '連線正常'
 
-        # 獲取資料庫統計
-        if tasks_collection is not None:
-            total_tasks = tasks_collection.count_documents({})
-            health_data['database']['total_tasks'] = total_tasks
+            # 獲取資料庫統計
+            if tasks_collection is not None:
+                total_tasks = tasks_collection.count_documents({})
+                health_data['database']['total_tasks'] = total_tasks
+        else:
+            health_data['database']['status'] = 'unhealthy'
+            health_data['database']['message'] = 'MongoDB client 未初始化'
     except Exception as e:
         health_data['database']['status'] = 'unhealthy'
         health_data['database']['message'] = str(e)
