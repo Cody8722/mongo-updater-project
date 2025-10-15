@@ -275,7 +275,7 @@ def get_system_health():
         health_data['database']['message'] = '連線正常'
 
         # 獲取資料庫統計
-        if tasks_collection:
+        if tasks_collection is not None:
             total_tasks = tasks_collection.count_documents({})
             health_data['database']['total_tasks'] = total_tasks
     except Exception as e:
