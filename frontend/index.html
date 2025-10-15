@@ -40,6 +40,9 @@
                 <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="stats">
                     📈 壓縮工具統計
                 </button>
+                <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="cleanup">
+                    🗑️ 檔案管理
+                </button>
             </nav>
         </div>
 
@@ -96,6 +99,47 @@
                     </div>
                     <div id="stats-output" class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <!-- Stats content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 檔案管理 -->
+            <div id="cleanup-content" class="tab-content">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h2 class="text-xl font-bold mb-6">🗑️ 檔案管理與批次清理</h2>
+                    <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
+                        <div class="flex-grow">
+                            <label for="cleanup-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
+                            <input type="password" id="cleanup-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="請輸入 ADMIN_SECRET">
+                        </div>
+                        <button id="load-files-btn" class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 font-semibold">載入檔案列表</button>
+                    </div>
+
+                    <div id="files-container" class="hidden">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center space-x-4">
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="checkbox" id="select-all-files" class="h-4 w-4 text-blue-600 rounded">
+                                    <span class="text-sm font-medium">全選</span>
+                                </label>
+                                <span id="selected-count" class="text-sm text-gray-600">已選擇 0 個檔案</span>
+                            </div>
+                            <button id="batch-delete-btn" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                                刪除選取的檔案
+                            </button>
+                        </div>
+
+                        <div id="files-list" class="space-y-2 mb-6">
+                            <!-- Files will be loaded here -->
+                        </div>
+
+                        <div id="pagination" class="flex justify-center items-center space-x-2">
+                            <!-- Pagination will be loaded here -->
+                        </div>
+                    </div>
+
+                    <div id="cleanup-message" class="text-center py-8 text-gray-500">
+                        請輸入管理員密碼並載入檔案列表
                     </div>
                 </div>
             </div>
@@ -279,6 +323,204 @@
     fetchStatsBtn.addEventListener('click', startStatsMonitoring);
     statsSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') startStatsMonitoring(); });
 
+    // --- 檔案管理功能 ---
+    const loadFilesBtn = document.getElementById('load-files-btn');
+    const cleanupSecretInput = document.getElementById('cleanup-secret');
+    const filesContainer = document.getElementById('files-container');
+    const filesList = document.getElementById('files-list');
+    const cleanupMessage = document.getElementById('cleanup-message');
+    const selectAllCheckbox = document.getElementById('select-all-files');
+    const selectedCountSpan = document.getElementById('selected-count');
+    const batchDeleteBtn = document.getElementById('batch-delete-btn');
+    const paginationDiv = document.getElementById('pagination');
+
+    let currentPage = 1;
+    let selectedFiles = new Set();
+    let totalFiles = 0;
+
+    async function loadFiles(page = 1) {
+        const secret = cleanupSecretInput.value.trim();
+        if (!secret) {
+            cleanupMessage.textContent = '❌ 請輸入管理員密碼';
+            cleanupMessage.classList.remove('text-gray-500');
+            cleanupMessage.classList.add('text-red-500');
+            return;
+        }
+
+        // 儲存密碼
+        if (secret) {
+            sessionStorage.setItem('adminSecret', secret);
+        }
+
+        cleanupMessage.textContent = '⏳ 正在載入檔案列表...';
+        cleanupMessage.classList.remove('text-red-500');
+        cleanupMessage.classList.add('text-gray-500');
+
+        try {
+            const response = await fetch(`${backendUrl}/admin/api/all-files?page=${page}&limit=50`, {
+                headers: { 'X-Admin-Secret': secret }
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '載入失敗');
+
+            currentPage = page;
+            totalFiles = data.total;
+            renderFiles(data.files);
+            renderPagination(data.page, data.total_pages);
+
+            filesContainer.classList.remove('hidden');
+            cleanupMessage.classList.add('hidden');
+        } catch (error) {
+            cleanupMessage.textContent = `❌ ${error.message}`;
+            cleanupMessage.classList.add('text-red-500');
+            filesContainer.classList.add('hidden');
+        }
+    }
+
+    function renderFiles(files) {
+        filesList.innerHTML = '';
+        selectedFiles.clear();
+        updateSelectedCount();
+
+        if (files.length === 0) {
+            filesList.innerHTML = '<p class="text-center text-gray-500 py-8">目前沒有任何檔案</p>';
+            return;
+        }
+
+        files.forEach(file => {
+            const fileDiv = document.createElement('div');
+            fileDiv.className = 'flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition';
+
+            const createdDate = new Date(file.created_at).toLocaleString('zh-TW');
+            const fileSize = formatBytes(file.file_size);
+
+            fileDiv.innerHTML = `
+                <div class="flex items-center space-x-4 flex-grow">
+                    <input type="checkbox" class="file-checkbox h-4 w-4 text-blue-600 rounded" data-file-id="${file._id}">
+                    <div class="flex-grow">
+                        <p class="font-medium text-gray-900">${file.filename}</p>
+                        <p class="text-sm text-gray-500">原始: ${file.original_filename}</p>
+                    </div>
+                </div>
+                <div class="text-right text-sm text-gray-600">
+                    <p>${fileSize}</p>
+                    <p class="text-xs">${createdDate}</p>
+                    <p class="text-xs">來源: ${file.ip_address}</p>
+                </div>
+            `;
+
+            filesList.appendChild(fileDiv);
+        });
+
+        // 添加複選框事件監聽
+        document.querySelectorAll('.file-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', handleFileCheckbox);
+        });
+    }
+
+    function renderPagination(currentPage, totalPages) {
+        paginationDiv.innerHTML = '';
+
+        if (totalPages <= 1) return;
+
+        // 上一頁按鈕
+        const prevBtn = document.createElement('button');
+        prevBtn.textContent = '‹ 上一頁';
+        prevBtn.className = `px-4 py-2 rounded-md ${currentPage === 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+        prevBtn.disabled = currentPage === 1;
+        prevBtn.addEventListener('click', () => loadFiles(currentPage - 1));
+        paginationDiv.appendChild(prevBtn);
+
+        // 頁碼顯示
+        const pageInfo = document.createElement('span');
+        pageInfo.textContent = `第 ${currentPage} / ${totalPages} 頁`;
+        pageInfo.className = 'px-4 py-2 text-gray-700 font-medium';
+        paginationDiv.appendChild(pageInfo);
+
+        // 下一頁按鈕
+        const nextBtn = document.createElement('button');
+        nextBtn.textContent = '下一頁 ›';
+        nextBtn.className = `px-4 py-2 rounded-md ${currentPage === totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+        nextBtn.disabled = currentPage === totalPages;
+        nextBtn.addEventListener('click', () => loadFiles(currentPage + 1));
+        paginationDiv.appendChild(nextBtn);
+    }
+
+    function handleFileCheckbox(e) {
+        const fileId = e.target.dataset.fileId;
+        if (e.target.checked) {
+            selectedFiles.add(fileId);
+        } else {
+            selectedFiles.delete(fileId);
+            selectAllCheckbox.checked = false;
+        }
+        updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+        selectedCountSpan.textContent = `已選擇 ${selectedFiles.size} 個檔案`;
+        batchDeleteBtn.disabled = selectedFiles.size === 0;
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    selectAllCheckbox.addEventListener('change', (e) => {
+        const checkboxes = document.querySelectorAll('.file-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = e.target.checked;
+            const fileId = checkbox.dataset.fileId;
+            if (e.target.checked) {
+                selectedFiles.add(fileId);
+            } else {
+                selectedFiles.delete(fileId);
+            }
+        });
+        updateSelectedCount();
+    });
+
+    batchDeleteBtn.addEventListener('click', async () => {
+        if (selectedFiles.size === 0) return;
+
+        const confirmed = confirm(`確定要刪除 ${selectedFiles.size} 個檔案嗎？\n此操作無法復原！`);
+        if (!confirmed) return;
+
+        const secret = cleanupSecretInput.value.trim();
+        batchDeleteBtn.disabled = true;
+        batchDeleteBtn.textContent = '刪除中...';
+
+        try {
+            const response = await fetch(`${backendUrl}/admin/api/batch-delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Admin-Secret': secret
+                },
+                body: JSON.stringify({ task_ids: Array.from(selectedFiles) })
+            });
+
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || '刪除失敗');
+
+            alert(`✅ 成功刪除 ${result.deleted_count} 個檔案`);
+            loadFiles(currentPage);
+        } catch (error) {
+            alert(`❌ 刪除失敗: ${error.message}`);
+        } finally {
+            batchDeleteBtn.disabled = false;
+            batchDeleteBtn.textContent = '刪除選取的檔案';
+        }
+    });
+
+    loadFilesBtn.addEventListener('click', () => loadFiles(1));
+    cleanupSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') loadFiles(1); });
+
     // --- 資料庫狀態檢查 ---
     const dbStatusIndicator = document.getElementById('db-status-indicator');
     const dbStatusText = document.getElementById('db-status-text');
@@ -290,6 +532,7 @@
         const savedSecret = sessionStorage.getItem('adminSecret');
         if (savedSecret) {
             statsSecretInput.value = savedSecret;
+            cleanupSecretInput.value = savedSecret;
         }
 
         fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
