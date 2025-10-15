@@ -25,7 +25,7 @@ CORS(app, origins=[
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["10000 per day", "1000 per hour"]
     # 說明: Flask-Limiter 預設使用記憶體儲存，對於管理後台已足夠。
     # 若需跨容器/重啟的持續性限流，可考慮設定 storage_uri="redis://..."
 )
@@ -80,6 +80,7 @@ def force_https():
 
 # --- API 路由 ---
 @app.route('/status', methods=['GET'])
+@limiter.exempt
 def get_status():
     task_count = 0
     try:
@@ -99,6 +100,7 @@ def get_status():
         return jsonify({"status": "error", "db_status": "disconnected", "message": str(e)}), 500
 
 @app.route('/get_holidays', methods=['GET'])
+@limiter.limit("100 per minute")
 def get_holidays():
     if holidays_collection is None: return jsonify({"error": "資料庫集合未初始化"}), 500
     try:
@@ -111,6 +113,7 @@ def get_holidays():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/update_holiday', methods=['POST'])
+@limiter.limit("50 per minute")
 def update_holiday():
     if holidays_collection is None: return jsonify({"error": "資料庫集合未初始化"}), 500
     try:
@@ -262,7 +265,7 @@ def admin_batch_delete():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/admin/api/system-health', methods=['GET'])
-@limiter.limit("30 per minute")
+@limiter.limit("300 per minute")
 def get_system_health():
     secret = request.headers.get('X-Admin-Secret')
     if not secret or secret != ADMIN_SECRET:
