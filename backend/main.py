@@ -8,6 +8,8 @@ import json
 from datetime import datetime, timedelta
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import requests
+import time
 
 # --- 初始化 ---
 load_dotenv()
@@ -32,6 +34,11 @@ limiter = Limiter(
 # --- 資料庫連線 ---
 MONGO_URI = os.getenv('MONGO_URI')
 ADMIN_SECRET = os.getenv('ADMIN_SECRET')
+
+# --- 服務 URL 配置 ---
+COMPRESSOR_URL = os.getenv('COMPRESSOR_URL', 'http://localhost:5000')
+SCHEDULE_URL = os.getenv('SCHEDULE_URL', 'http://localhost:3000')
+
 client = None
 db = None
 compressor_db = None
@@ -246,6 +253,122 @@ def admin_batch_delete():
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/system-health', methods=['GET'])
+@limiter.limit("30 per minute")
+def get_system_health():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+
+    health_data = {
+        'timestamp': datetime.now().isoformat(),
+        'services': {},
+        'storage': {},
+        'database': {}
+    }
+
+    # 檢查 MongoDB
+    try:
+        client.admin.command('ping')
+        health_data['database']['status'] = 'healthy'
+        health_data['database']['message'] = '連線正常'
+
+        # 獲取資料庫統計
+        if tasks_collection:
+            total_tasks = tasks_collection.count_documents({})
+            health_data['database']['total_tasks'] = total_tasks
+    except Exception as e:
+        health_data['database']['status'] = 'unhealthy'
+        health_data['database']['message'] = str(e)
+
+    # 檢查壓縮工具服務
+    try:
+        start_time = time.time()
+        response = requests.get(f'{COMPRESSOR_URL}/storage-stats', timeout=5)
+        response_time = round((time.time() - start_time) * 1000, 2)
+
+        if response.status_code == 200:
+            health_data['services']['compressor'] = {
+                'status': 'healthy',
+                'message': '服務正常',
+                'response_time_ms': response_time,
+                'url': COMPRESSOR_URL
+            }
+
+            # 獲取儲存空間資訊
+            storage_data = response.json()
+            health_data['storage'] = {
+                'used_mb': storage_data.get('used_space_mb', 0),
+                'total_mb': storage_data.get('total_space_mb', 512),
+                'available_mb': storage_data.get('available_mb', 0),
+                'usage_percent': storage_data.get('usage_percent', 0),
+                'file_count': storage_data.get('file_count', 0),
+                'warning_level': storage_data.get('warning_level', 'normal')
+            }
+        else:
+            health_data['services']['compressor'] = {
+                'status': 'unhealthy',
+                'message': f'HTTP {response.status_code}',
+                'response_time_ms': response_time,
+                'url': COMPRESSOR_URL
+            }
+    except requests.exceptions.Timeout:
+        health_data['services']['compressor'] = {
+            'status': 'unhealthy',
+            'message': '連線超時',
+            'url': COMPRESSOR_URL
+        }
+    except Exception as e:
+        health_data['services']['compressor'] = {
+            'status': 'unhealthy',
+            'message': str(e),
+            'url': COMPRESSOR_URL
+        }
+
+    # 檢查班表工具服務
+    try:
+        start_time = time.time()
+        response = requests.get(SCHEDULE_URL, timeout=5)
+        response_time = round((time.time() - start_time) * 1000, 2)
+
+        if response.status_code == 200:
+            health_data['services']['schedule'] = {
+                'status': 'healthy',
+                'message': '服務正常',
+                'response_time_ms': response_time,
+                'url': SCHEDULE_URL
+            }
+        else:
+            health_data['services']['schedule'] = {
+                'status': 'unhealthy',
+                'message': f'HTTP {response.status_code}',
+                'response_time_ms': response_time,
+                'url': SCHEDULE_URL
+            }
+    except requests.exceptions.Timeout:
+        health_data['services']['schedule'] = {
+            'status': 'unhealthy',
+            'message': '連線超時',
+            'url': SCHEDULE_URL
+        }
+    except Exception as e:
+        health_data['services']['schedule'] = {
+            'status': 'unhealthy',
+            'message': str(e),
+            'url': SCHEDULE_URL
+        }
+
+    # 計算整體健康狀態
+    all_healthy = (
+        health_data['database']['status'] == 'healthy' and
+        health_data['services'].get('compressor', {}).get('status') == 'healthy' and
+        health_data['services'].get('schedule', {}).get('status') == 'healthy'
+    )
+
+    health_data['overall_status'] = 'healthy' if all_healthy else 'degraded'
+
+    return jsonify(health_data), 200
 
 # --- 本地開發專用 ---
 if __name__ == '__main__':
