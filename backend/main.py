@@ -285,10 +285,31 @@ def get_system_health():
             health_data['database']['status'] = 'healthy'
             health_data['database']['message'] = '連線正常'
 
-            # 獲取資料庫統計
-            if tasks_collection is not None:
+            # 獲取詳細資料庫統計
+            if tasks_collection is not None and holidays_collection is not None:
+                # 壓縮任務統計
                 total_tasks = tasks_collection.count_documents({})
+                processing_tasks = tasks_collection.count_documents({'status': '處理中'})
+                waiting_tasks = tasks_collection.count_documents({'status': '等待中'})
+                completed_today = tasks_collection.count_documents({
+                    'status': '完成',
+                    'created_at': {'$gte': datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)}
+                })
+
+                # 假日記錄統計
+                holidays_count = holidays_collection.count_documents({})
+
                 health_data['database']['total_tasks'] = total_tasks
+                health_data['database']['processing_tasks'] = processing_tasks
+                health_data['database']['waiting_tasks'] = waiting_tasks
+                health_data['database']['completed_today'] = completed_today
+                health_data['database']['holidays_count'] = holidays_count
+
+                # 資料庫大小資訊
+                if compressor_db is not None:
+                    stats = compressor_db.command('dbStats')
+                    health_data['database']['db_size_mb'] = round(stats.get('dataSize', 0) / (1024 * 1024), 2)
+                    health_data['database']['collections_count'] = stats.get('collections', 0)
         else:
             health_data['database']['status'] = 'unhealthy'
             health_data['database']['message'] = 'MongoDB client 未初始化'
