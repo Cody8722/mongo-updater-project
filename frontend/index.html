@@ -1,784 +1,391 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多功能中控台 - 整合版</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        window.BACKEND_URL = 'https://backend1.zeabur.app';
-    </script>
-    <style>
-        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; animation: fadeIn 0.5s; }
-        .tab-button.active { background-color: #4f46e5; color: white; border-color: #4f46e5; }
-        .tab-button { transition: all 0.2s ease-in-out; }
-        .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .calendar-day { transition: background-color 0.2s; border-radius: 50%; }
-        .calendar-day.selected { background-color: #3b82f6; color: white !important; }
-        .holiday, .weekend { color: #ef4444; }
-        .workday { color: #6b7280; }
-        #db-status-indicator { width: 10px; height: 10px; border-radius: 50%; transition: background-color 0.3s; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    </style>
-</head>
-<body class="p-0">
-    <!-- 統一導航列 -->
-    <nav class="bg-indigo-600 text-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between items-center h-16">
-                <div class="flex-shrink-0">
-                    <span class="text-xl font-bold">🛠️ 工具集</span>
-                </div>
-                <div class="flex space-x-2 sm:space-x-4">
-                    <a href="https://shift-schedule-generators.zeabur.app/" class="px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium hover:bg-indigo-700 transition" title="班表工具">📅 <span class="hidden sm:inline">班表工具</span></a>
-                    <a href="https://zip.zeabur.app/" class="px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium hover:bg-indigo-700 transition" title="壓縮工具">📦 <span class="hidden sm:inline">壓縮工具</span></a>
-                    <a href="https://mongo-updater-project.zeabur.app/" class="px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium bg-indigo-800" title="中控台">🔧 <span class="hidden sm:inline">中控台</span></a>
-                </div>
-            </div>
-        </div>
-    </nav>
+import os
+from flask import Flask, request, jsonify, redirect
+from pymongo import MongoClient
+from dotenv import load_dotenv
+from flask_cors import CORS
+from bson import json_util
+import json
+from datetime import datetime, timedelta
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import requests
+import time
 
-    <div class="p-4 sm:p-8">
-        <div class="max-w-7xl mx-auto">
-            <h1 class="text-3xl font-bold text-gray-800 text-center mb-2">🔧 多功能中控台 (整合版)</h1>
-            <p class="text-center text-gray-500 mb-8">集中管理行事曆設定與壓縮工具統計</p>
+# --- 初始化 ---
+load_dotenv()
+app = Flask(__name__)
 
-        <!-- 頁籤按鈕 -->
-        <div class="mb-6 border-b border-gray-200">
-            <nav class="flex -mb-px space-x-6" aria-label="Tabs">
-                <button class="tab-button active whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm rounded-t-lg" data-tab="calendar">
-                    📅 日曆假日設定
-                </button>
-                <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="stats">
-                    📈 壓縮工具統計
-                </button>
-                <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="cleanup">
-                    🗑️ 檔案管理
-                </button>
-                <button class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-lg" data-tab="monitor">
-                    📊 系統監控
-                </button>
-            </nav>
-        </div>
+# ✅ 安全性微調: 移除 "null" 來源，加入更精確的開發來源
+CORS(app, origins=[
+    "https://mongo-updater-project.zeabur.app", # ⚠️ 部署前請務必換成您真實的前端網址
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+])
 
-        <!-- 頁籤內容 -->
-        <div>
-            <!-- 日曆假日設定 -->
-            <div id="calendar-content" class="tab-content active">
-                 <div class="bg-white p-6 rounded-lg shadow">
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        <div class="lg:col-span-2">
-                            <div class="flex justify-between items-center mb-4">
-                                <button id="prev-month" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">&lt; 上個月</button>
-                                <h2 id="month-year" class="text-xl font-semibold"></h2>
-                                <button id="next-month" class="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">下個月 &gt;</button>
-                            </div>
-                            <div class="grid grid-cols-7 gap-2 text-center font-medium text-gray-600 mb-2">
-                                <div class="text-red-500">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="text-red-500">六</div>
-                            </div>
-                            <div id="calendar-days" class="grid grid-cols-7 gap-2"></div>
-                        </div>
-                        <div class="lg:col-span-1 border-t lg:border-t-0 lg:border-l pt-6 lg:pt-0 lg:pl-8">
-                            <h2 class="text-lg font-bold mb-4">編輯日期資料</h2>
-                            <form id="holiday-form" class="space-y-4">
-                                <div>
-                                    <label for="date-id" class="block text-sm font-medium text-gray-700">日期 ID</label>
-                                    <input type="text" id="date-id" readonly class="mt-1 block w-full bg-gray-100 border-gray-300 rounded-md shadow-sm p-2">
-                                </div>
-                                <div>
-                                    <label for="holiday-name" class="block text-sm font-medium text-gray-700">假日名稱</label>
-                                    <input type="text" id="holiday-name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 p-2" placeholder="例如:春節">
-                                </div>
-                                <div class="flex items-center">
-                                    <input id="is-holiday" type="checkbox" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
-                                    <label for="is-holiday" class="ml-2 block text-sm text-gray-900">標示為假日</label>
-                                </div>
-                                <button type="submit" class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600">儲存變更</button>
-                                <div id="response-message" class="mt-4 text-center text-sm font-medium"></div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[]  # 暫時停用全局限流
+    # 說明: Flask-Limiter 預設使用記憶體儲存，對於管理後台已足夠。
+    # 若需跨容器/重啟的持續性限流，可考慮設定 storage_uri="redis://..."
+)
 
-            <!-- 壓縮工具統計 -->
-            <div id="stats-content" class="tab-content">
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h2 class="text-xl font-bold mb-6">📈 壓縮工具使用統計</h2>
-                    <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
-                        <div class="flex-grow">
-                            <label for="stats-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
-                            <input type="password" id="stats-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="請輸入 ADMIN_SECRET">
-                        </div>
-                        <button id="fetch-stats-btn" class="bg-purple-600 text-white px-5 py-2 rounded-md hover:bg-purple-700 font-semibold">載入/刷新統計</button>
-                    </div>
-                    <div id="stats-output" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- Stats content will be loaded here -->
-                    </div>
-                </div>
-            </div>
 
-            <!-- 檔案管理 -->
-            <div id="cleanup-content" class="tab-content">
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h2 class="text-xl font-bold mb-6">🗑️ 檔案管理與批次清理</h2>
-                    <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
-                        <div class="flex-grow">
-                            <label for="cleanup-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
-                            <input type="password" id="cleanup-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="請輸入 ADMIN_SECRET">
-                        </div>
-                        <button id="load-files-btn" class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 font-semibold">載入檔案列表</button>
-                    </div>
+# --- 資料庫連線 ---
+MONGO_URI = os.getenv('MONGO_URI')
+ADMIN_SECRET = os.getenv('ADMIN_SECRET')
 
-                    <div id="files-container" class="hidden">
-                        <div class="flex justify-between items-center mb-4">
-                            <div class="flex items-center space-x-4">
-                                <label class="flex items-center space-x-2 cursor-pointer">
-                                    <input type="checkbox" id="select-all-files" class="h-4 w-4 text-blue-600 rounded">
-                                    <span class="text-sm font-medium">全選</span>
-                                </label>
-                                <span id="selected-count" class="text-sm text-gray-600">已選擇 0 個檔案</span>
-                            </div>
-                            <button id="batch-delete-btn" class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
-                                刪除選取的檔案
-                            </button>
-                        </div>
+# --- 服務 URL 配置 ---
+COMPRESSOR_URL = os.getenv('COMPRESSOR_URL', 'http://localhost:5000')
+SCHEDULE_URL = os.getenv('SCHEDULE_URL', 'http://localhost:3000')
 
-                        <div id="files-list" class="space-y-2 mb-6">
-                            <!-- Files will be loaded here -->
-                        </div>
+client = None
+db = None
+compressor_db = None
+holidays_collection = None
+tasks_collection = None
 
-                        <div id="pagination" class="flex justify-center items-center space-x-2">
-                            <!-- Pagination will be loaded here -->
-                        </div>
-                    </div>
-
-                    <div id="cleanup-message" class="text-center py-8 text-gray-500">
-                        請輸入管理員密碼並載入檔案列表
-                    </div>
-                </div>
-            </div>
-
-            <!-- 系統監控 -->
-            <div id="monitor-content" class="tab-content">
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-xl font-bold">📊 系統監控與健康檢查</h2>
-                        <button id="refresh-health-btn" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 font-semibold">
-                            🔄 刷新狀態
-                        </button>
-                    </div>
-
-                    <div class="flex items-end space-x-3 mb-6 p-4 bg-gray-50 rounded-md border">
-                        <div class="flex-grow">
-                            <label for="monitor-secret" class="block text-sm font-medium text-gray-700">管理員密碼</label>
-                            <input type="password" id="monitor-secret" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="請輸入 ADMIN_SECRET">
-                        </div>
-                        <button id="start-monitor-btn" class="bg-indigo-600 text-white px-5 py-2 rounded-md hover:bg-indigo-700 font-semibold">開始監控</button>
-                    </div>
-
-                    <div id="monitor-container" class="hidden">
-                        <!-- 整體狀態 -->
-                        <div id="overall-status" class="mb-6 p-4 rounded-lg border-2">
-                            <!-- Overall status will be loaded here -->
-                        </div>
-
-                        <!-- 服務狀態 -->
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                            <div id="mongodb-status" class="bg-white p-6 rounded-lg shadow border">
-                                <h3 class="text-lg font-semibold mb-2">🗄️ MongoDB</h3>
-                                <div class="service-status">載入中...</div>
-                            </div>
-                            <div id="compressor-status" class="bg-white p-6 rounded-lg shadow border">
-                                <h3 class="text-lg font-semibold mb-2">📦 壓縮工具</h3>
-                                <div class="service-status">載入中...</div>
-                            </div>
-                            <div id="schedule-status" class="bg-white p-6 rounded-lg shadow border">
-                                <h3 class="text-lg font-semibold mb-2">📅 班表工具</h3>
-                                <div class="service-status">載入中...</div>
-                            </div>
-                        </div>
-
-                        <!-- 儲存空間資訊 -->
-                        <div id="storage-info" class="bg-white p-6 rounded-lg shadow mb-6">
-                            <h3 class="text-lg font-semibold mb-4">💾 儲存空間狀態</h3>
-                            <div id="storage-details">載入中...</div>
-                        </div>
-
-                        <!-- 最後更新時間 -->
-                        <div class="text-center text-sm text-gray-500">
-                            <span id="last-health-check">尚未檢查</span>
-                        </div>
-                    </div>
-
-                    <div id="monitor-message" class="text-center py-8 text-gray-500">
-                        請輸入管理員密碼並開始監控
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+try:
+    if not MONGO_URI:
+        raise ValueError("錯誤:找不到 MONGO_URI 環境變數。")
     
-    <!-- 頁尾狀態 -->
-    <div class="fixed bottom-4 right-4 flex items-center space-x-2 bg-white py-2 px-3 rounded-full shadow-lg">
-        <div id="db-status-indicator" class="bg-gray-400"></div>
-        <span id="db-status-text" class="text-xs text-gray-600 font-medium">正在檢查...</span>
-    </div>
+    client = MongoClient(
+        MONGO_URI, 
+        serverSelectionTimeoutMS=5000,
+        maxPoolSize=10,
+        minPoolSize=2,
+        maxIdleTimeMS=45000
+    )
+    client.admin.command('ping')
+    print("✅ 成功連線到 MongoDB!")
 
-<script>
-    const backendUrl = window.BACKEND_URL || 'https://backend1.zeabur.app';
+    db = client.scheduleApp 
+    holidays_collection = db.holidays
 
-    let statsIntervalId = null;
-    let activeTasksIntervalId = null;
-    let statsErrorCount = 0;
-    let tasksErrorCount = 0;
-    const MAX_ERRORS = 3;
-
-    // 頁籤切換
-    document.querySelectorAll('.tab-button').forEach(button => {
-        button.addEventListener('click', () => {
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-            const tabId = button.dataset.tab;
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.toggle('active', content.id === `${tabId}-content`);
-            });
-            
-            if (tabId !== 'stats') {
-                clearInterval(statsIntervalId);
-                clearInterval(activeTasksIntervalId);
-                statsIntervalId = null;
-                activeTasksIntervalId = null;
-            }
-        });
-    });
-
-    // --- 日曆功能 ---
-    const monthYearEl = document.getElementById('month-year');
-    const calendarDaysEl = document.getElementById('calendar-days');
-    const prevMonthBtn = document.getElementById('prev-month');
-    const nextMonthBtn = document.getElementById('next-month');
-    const holidayForm = document.getElementById('holiday-form');
-    const dateIdInput = document.getElementById('date-id');
-    const holidayNameInput = document.getElementById('holiday-name');
-    const isHolidayCheckbox = document.getElementById('is-holiday');
-    const responseMessageEl = document.getElementById('response-message');
-    let currentDate = new Date();
-    let holidaysData = {};
-    let selectedDateElement = null;
-
-    function formatDateToId(date) { return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; }
-    async function fetchHolidays(year, month) { try { const response = await fetch(`${backendUrl}/get_holidays?year=${year}&month=${month}`); if (!response.ok) throw new Error('無法獲取資料'); const data = await response.json(); holidaysData = {}; data.forEach(holiday => { holidaysData[holiday._id] = holiday; }); renderCalendar(); } catch (error) { console.error('Fetch holidays error:', error); } }
-    function renderCalendar() { const year = currentDate.getFullYear(); const month = currentDate.getMonth(); monthYearEl.textContent = `${year}年 ${month + 1}月`; calendarDaysEl.innerHTML = ''; const firstDayOfMonth = new Date(year, month, 1); const startDay = firstDayOfMonth.getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate(); for (let i = 0; i < startDay; i++) { calendarDaysEl.appendChild(document.createElement('div')); } for (let day = 1; day <= daysInMonth; day++) { const dateCell = document.createElement('div'); dateCell.className = 'calendar-day h-10 flex items-center justify-center cursor-pointer'; const tempDate = new Date(year, month, day); const dateId = formatDateToId(tempDate); const dayOfWeek = tempDate.getDay(); dateCell.textContent = day; dateCell.dataset.dateId = dateId; const holidayInfo = holidaysData[dateId]; const isWeekend = dayOfWeek === 0 || dayOfWeek === 6; if (holidayInfo) { dateCell.classList.add(holidayInfo.isHoliday ? 'holiday' : 'workday'); } else if (isWeekend) { dateCell.classList.add('weekend'); } dateCell.addEventListener('click', () => { if (selectedDateElement) selectedDateElement.classList.remove('selected'); dateCell.classList.add('selected'); selectedDateElement = dateCell; dateIdInput.value = dateId; const data = holidaysData[dateId]; holidayNameInput.value = data?.name || ''; isHolidayCheckbox.checked = data ? data.isHoliday : isWeekend; }); calendarDaysEl.appendChild(dateCell); } }
-    async function handleFormSubmit(e) { e.preventDefault(); const dateId = dateIdInput.value; if (!dateId) return; const data = { _id: dateId, name: holidayNameInput.value, isHoliday: isHolidayCheckbox.checked }; responseMessageEl.textContent = '儲存中...'; try { const response = await fetch(`${backendUrl}/update_holiday`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || '儲存失敗'); responseMessageEl.textContent = '✅ 儲存成功!'; responseMessageEl.style.color = 'green'; fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1); } catch (error) { responseMessageEl.textContent = `❌ 錯誤: ${error.message}`; responseMessageEl.style.color = 'red'; } }
-    prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1); });
-    nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1); });
-    holidayForm.addEventListener('submit', handleFormSubmit);
-
-    // --- 壓縮工具統計功能 ---
-    const fetchStatsBtn = document.getElementById('fetch-stats-btn');
-    const statsSecretInput = document.getElementById('stats-secret');
-    const statsOutput = document.getElementById('stats-output');
-
-    async function startStatsMonitoring() {
-        clearInterval(statsIntervalId);
-        clearInterval(activeTasksIntervalId);
-        statsErrorCount = 0;
-        tasksErrorCount = 0;
-
-        // ✅ UX 改善: 儲存密碼到 sessionStorage
-        const secret = statsSecretInput.value.trim();
-        if (secret) {
-            sessionStorage.setItem('adminSecret', secret);
-        }
-
-        const success = await fetchAndDisplayStats(true);
-        if (success) {
-            statsIntervalId = setInterval(() => fetchAndDisplayStats(false), 30000);
-            activeTasksIntervalId = setInterval(updateActiveTasks, 5000);
-        }
-    }
+    compressor_db = client['compressor_db']
+    tasks_collection = compressor_db['tasks']
     
-    async function fetchAndDisplayStats(isInitialLoad) {
-        const secret = statsSecretInput.value.trim();
-        if (!secret) {
-            if(isInitialLoad) statsOutput.innerHTML = `<div class="col-span-2 text-center text-red-500 py-8">❌ 管理員密碼不能為空</div>`;
-            return false;
-        }
-        if (isInitialLoad) {
-            statsOutput.innerHTML = `<div class="col-span-2 text-center text-gray-500 py-8">⏳ 正在載入統計資料...</div>`;
-        }
-        try {
-            const response = await fetch(`${backendUrl}/admin/api/compression-stats`, {
-                headers: { 'X-Admin-Secret': secret }
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || `伺服器錯誤 (${response.status})`);
-            
-            statsErrorCount = 0;
-            displayStatsOnPage(data);
-            return true;
-        } catch (error) {
-            statsErrorCount++;
-            console.error(`統計資料刷新失敗 (第 ${statsErrorCount} 次):`, error);
-            
-            if (statsErrorCount >= MAX_ERRORS) {
-                clearInterval(statsIntervalId);
-                clearInterval(activeTasksIntervalId);
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'col-span-2 text-center text-red-500 mt-4 py-4';
-                errorDiv.innerHTML = `❌ 連續失敗 ${MAX_ERRORS} 次，已停止自動刷新。<br>請檢查密碼或網路連線。`;
-                if(document.getElementById('stats-output')) {
-                    document.getElementById('stats-output').appendChild(errorDiv);
-                }
+    print("✅ 已連接到壓縮工具資料庫")
+
+except Exception as e:
+    print(f"❌ 無法連線到 MongoDB: {e}")
+
+# ✅ 安全性建議: 強制 HTTPS (在支援 X-Forwarded-Proto 的反向代理後方)
+@app.before_request
+def force_https():
+    # 當不在偵錯模式，且請求不是安全或 X-Forwarded-Proto header 不是 https 時
+    if not app.debug and not request.is_secure and request.headers.get('x-forwarded-proto', 'http') != 'https':
+        url = request.url.replace('http://', 'https://', 1)
+        return redirect(url, code=301)
+
+# --- API 路由 ---
+@app.route('/status', methods=['GET'])
+@limiter.exempt
+def get_status():
+    task_count = 0
+    try:
+        if client is not None:
+            client.admin.command('ping')
+            if tasks_collection is not None:
+                task_count = tasks_collection.count_documents({})
+
+            return jsonify({
+                "status": "ok",
+                "db_status": "connected",
+                "compressor_tasks_count": task_count
+            }), 200
+        else:
+            raise Exception("MongoDB client is not initialized.")
+    except Exception as e:
+        return jsonify({"status": "error", "db_status": "disconnected", "message": str(e)}), 500
+
+@app.route('/get_holidays', methods=['GET'])
+@limiter.limit("100 per minute")
+def get_holidays():
+    if holidays_collection is None: return jsonify({"error": "資料庫集合未初始化"}), 500
+    try:
+        year = request.args.get('year')
+        month = request.args.get('month')
+        if not year or not month: return jsonify({"error": "缺少年份或月份參數"}), 400
+        query_pattern = f"^{year}{str(month).zfill(2)}"
+        cursor = holidays_collection.find({"_id": {"$regex": query_pattern}})
+        return json.loads(json_util.dumps(list(cursor))), 200
+    except Exception as e: return jsonify({"error": str(e)}), 500
+
+@app.route('/update_holiday', methods=['POST'])
+@limiter.limit("50 per minute")
+def update_holiday():
+    if holidays_collection is None: return jsonify({"error": "資料庫集合未初始化"}), 500
+    try:
+        data = request.get_json()
+        if not data or '_id' not in data: return jsonify({"error": "無效的請求資料"}), 400
+        doc_id = data['_id']
+        update_data = {k: v for k, v in data.items() if k != '_id'}
+        result = holidays_collection.update_one({"_id": doc_id}, {"$set": update_data}, upsert=True)
+        if result.upserted_id or result.modified_count > 0:
+            return jsonify({"message": "資料已成功儲存"}), 200
+        return jsonify({"message": "資料無變動"}), 200
+    except Exception as e: return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/compression-stats', methods=['GET'])
+@limiter.limit("20 per minute")
+def get_compression_stats():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET: return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None or compressor_db is None: return jsonify({"error": "資料庫未初始化"}), 500
+    try:
+        total_tasks = tasks_collection.count_documents({})
+        completed_tasks = tasks_collection.count_documents({'status': '完成'})
+        failed_tasks = tasks_collection.count_documents({'status': '失敗'})
+
+        fs_files = compressor_db['fs.files']
+        storage_agg = list(fs_files.aggregate([{'$group': {'_id': None, 'total': {'$sum': '$length'}}}]))
+        storage_bytes = storage_agg[0]['total'] if storage_agg else 0
+
+        return jsonify({
+            'total_tasks': total_tasks, 'completed_tasks': completed_tasks, 'failed_tasks': failed_tasks,
+            'success_rate': round((completed_tasks / total_tasks * 100) if total_tasks > 0 else 0, 2),
+            'storage_used_bytes': storage_bytes,
+            'storage_used_mb': round(storage_bytes / (1024 * 1024), 2)
+        }), 200
+    except Exception as e: return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/active-tasks', methods=['GET'])
+@limiter.limit("20 per minute")
+def get_active_tasks():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None:
+        return jsonify({"error": "資料庫未初始化"}), 500
+
+    try:
+        recent_time = datetime.now() - timedelta(minutes=10)
+        active_tasks = tasks_collection.find({
+            'created_at': {'$gte': recent_time},
+            'status': {'$in': ['處理中', '等待中', '完成', '失敗']}
+        }).sort('created_at', -1).limit(20)
+
+        return json.loads(json_util.dumps(list(active_tasks))), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/all-files', methods=['GET'])
+@limiter.limit("20 per minute")
+def get_all_files():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None or compressor_db is None:
+        return jsonify({"error": "資料庫未初始化"}), 500
+
+    try:
+        # 獲取查詢參數
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 50))
+        skip = (page - 1) * limit
+
+        # 計算總數
+        total_count = tasks_collection.count_documents({'type': 'compress', 'status': '完成'})
+
+        # 獲取壓縮任務列表（只取完成的，因為只有完成的才有檔案）
+        tasks = tasks_collection.find({
+            'type': 'compress',
+            'status': '完成',
+            'result_file_id': {'$exists': True}
+        }).sort('created_at', -1).skip(skip).limit(limit)
+
+        files = []
+        fs_files = compressor_db['fs.files']
+
+        for task in tasks:
+            # 獲取檔案大小
+            file_info = fs_files.find_one({'_id': task.get('result_file_id')})
+            files.append({
+                '_id': str(task['_id']),
+                'filename': task.get('result_filename', '未知'),
+                'original_filename': task.get('params', {}).get('raw_filename', '未知'),
+                'created_at': task.get('created_at'),
+                'file_size': file_info.get('length', 0) if file_info else 0,
+                'ip_address': task.get('ip_address', '未知')
+            })
+
+        return jsonify({
+            'files': files,
+            'total': total_count,
+            'page': page,
+            'limit': limit,
+            'total_pages': (total_count + limit - 1) // limit
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/batch-delete', methods=['POST'])
+@limiter.limit("5 per minute")
+def admin_batch_delete():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+    if tasks_collection is None or compressor_db is None:
+        return jsonify({"error": "資料庫未初始化"}), 500
+
+    try:
+        data = request.get_json()
+        task_ids = data.get('task_ids', [])
+
+        if not task_ids:
+            return jsonify({"error": "未提供任務 ID"}), 400
+
+        # 轉換字串 ID 為 ObjectId
+        from bson.objectid import ObjectId
+        object_ids = [ObjectId(tid) for tid in task_ids]
+
+        # 找到所有對應的任務
+        tasks = tasks_collection.find({'_id': {'$in': object_ids}})
+
+        deleted_count = 0
+        fs_files = compressor_db['fs.files']
+        fs_chunks = compressor_db['fs.chunks']
+
+        for task in tasks:
+            if task.get('result_file_id'):
+                # 刪除 GridFS 檔案
+                fs_files.delete_one({'_id': task['result_file_id']})
+                fs_chunks.delete_many({'files_id': task['result_file_id']})
+
+            # 刪除任務記錄
+            tasks_collection.delete_one({'_id': task['_id']})
+            deleted_count += 1
+
+        return jsonify({
+            "success": True,
+            "deleted_count": deleted_count
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/admin/api/system-health', methods=['GET'])
+@limiter.limit("300 per minute")
+def get_system_health():
+    secret = request.headers.get('X-Admin-Secret')
+    if not secret or secret != ADMIN_SECRET:
+        return jsonify({"error": "未授權"}), 403
+
+    health_data = {
+        'timestamp': datetime.now().isoformat(),
+        'services': {},
+        'storage': {},
+        'database': {}
+    }
+
+    # 檢查 MongoDB
+    try:
+        if client is not None:
+            client.admin.command('ping')
+            health_data['database']['status'] = 'healthy'
+            health_data['database']['message'] = '連線正常'
+
+            # 獲取資料庫統計
+            if tasks_collection is not None:
+                total_tasks = tasks_collection.count_documents({})
+                health_data['database']['total_tasks'] = total_tasks
+        else:
+            health_data['database']['status'] = 'unhealthy'
+            health_data['database']['message'] = 'MongoDB client 未初始化'
+    except Exception as e:
+        health_data['database']['status'] = 'unhealthy'
+        health_data['database']['message'] = str(e)
+
+    # 檢查壓縮工具服務
+    try:
+        start_time = time.time()
+        response = requests.get(f'{COMPRESSOR_URL}/storage-stats', timeout=5)
+        response_time = round((time.time() - start_time) * 1000, 2)
+
+        if response.status_code == 200:
+            health_data['services']['compressor'] = {
+                'status': 'healthy',
+                'message': '服務正常',
+                'response_time_ms': response_time,
+                'url': COMPRESSOR_URL
             }
-            if (isInitialLoad) {
-                 statsOutput.innerHTML = `<div class="col-span-2 text-center text-red-500 py-8">❌ 載入失敗: ${error.message}</div>`;
+
+            # 獲取儲存空間資訊
+            storage_data = response.json()
+            health_data['storage'] = {
+                'used_mb': storage_data.get('used_space_mb', 0),
+                'total_mb': storage_data.get('total_space_mb', 512),
+                'available_mb': storage_data.get('available_mb', 0),
+                'usage_percent': storage_data.get('usage_percent', 0),
+                'file_count': storage_data.get('file_count', 0),
+                'warning_level': storage_data.get('warning_level', 'normal')
             }
-            return false;
-        }
-    }
-
-    function displayStatsOnPage(stats) {
-        const successRate = stats.success_rate || 0;
-        const progressColor = successRate >= 80 ? 'bg-green-500' : successRate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-        const statsHTML = `
-            <div class="stat-card"><p class="text-sm opacity-80 mb-1">總任務數</p><p class="text-4xl font-bold">${stats.total_tasks}</p><p class="text-xs opacity-70 mt-2">自系統啟動以來的累計</p></div>
-            <div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"><p class="text-sm opacity-80 mb-1">成功率</p><p class="text-4xl font-bold">${successRate}%</p><div class="mt-2 bg-white bg-opacity-30 rounded-full h-2"><div class="${progressColor} h-2 rounded-full transition-all" style="width: ${successRate}%"></div></div></div>
-            <div class="bg-white p-6 rounded-lg shadow"><p class="text-sm text-gray-500 mb-1">✅ 成功完成</p><p class="text-3xl font-bold text-green-600">${stats.completed_tasks}</p></div>
-            <div class="bg-white p-6 rounded-lg shadow"><p class="text-sm text-gray-500 mb-1">❌ 失敗任務</p><p class="text-3xl font-bold text-red-600">${stats.failed_tasks}</p></div>
-            <div class="bg-white p-6 rounded-lg shadow col-span-1 md:col-span-2"><p class="text-sm text-gray-500 mb-1">💾 儲存空間使用</p><div class="flex items-baseline gap-2"><p class="text-3xl font-bold text-purple-600">${stats.storage_used_mb}</p><p class="text-gray-500">MB</p><span class="text-sm text-gray-400 ml-2">(共 ${(stats.storage_used_bytes / (1024 * 1024 * 1024)).toFixed(3)} GB)</span></div><div class="mt-4 bg-gray-200 rounded-full h-3"><div class="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full transition-all" style="width: ${Math.min((stats.storage_used_bytes / (512 * 1024 * 1024)) * 100, 100)}%"></div></div><p class="text-xs text-gray-500 mt-1">MongoDB 免費額度上限: 512 MB</p></div>
-        `;
-        statsOutput.innerHTML = statsHTML;
-        if (!document.getElementById('active-tasks-container')) {
-             addActiveTasksMonitor();
-        }
-        updateActiveTasks();
-    }
-
-    function addActiveTasksMonitor() {
-        const tasksDiv = document.createElement('div');
-        tasksDiv.id = 'active-tasks-container';
-        tasksDiv.className = 'col-span-1 md:col-span-2 bg-white p-6 rounded-lg shadow mt-6';
-        tasksDiv.innerHTML = `<div class="flex justify-between items-center mb-4"><h3 class="text-lg font-semibold">⚡ 即時任務狀態</h3><span id="last-update" class="text-xs text-gray-500"></span></div><div id="active-tasks" class="space-y-4"></div>`;
-        statsOutput.appendChild(tasksDiv);
-    }
-
-    async function updateActiveTasks() {
-        const secret = statsSecretInput.value.trim();
-        if (!secret) return;
-        try {
-            const response = await fetch(`${backendUrl}/admin/api/active-tasks`, {
-                headers: { 'X-Admin-Secret': secret }
-            });
-            const tasks = await response.json();
-            if (!response.ok) throw new Error(tasks.error || '載入失敗');
-            
-            tasksErrorCount = 0;
-            const tasksContainer = document.getElementById('active-tasks');
-            const lastUpdate = document.getElementById('last-update');
-            if(!tasksContainer || !lastUpdate) return;
-            lastUpdate.textContent = `最後更新: ${new Date().toLocaleTimeString('zh-TW')}`;
-            tasksContainer.innerHTML = tasks.length ? tasks.map(task => {
-                const statusClass = task.status === '完成' ? 'bg-green-100 text-green-800' : task.status === '處理中' ? 'bg-blue-100 text-blue-800' : task.status === '等待中' ? 'bg-yellow-100 text-yellow-800' : task.status === '失敗' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800';
-                return `<div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div class="flex-1"><p class="font-medium">${task.params?.expected_filename || '未知檔案'}</p><p class="text-sm text-gray-500"><span class="inline-block px-2 py-1 text-xs rounded ${statusClass}">${task.status}</span><span class="ml-2">${new Date(task.created_at).toLocaleString('zh-TW')}</span></p></div><div class="text-right text-sm text-gray-500">${task.ip_address ? `<p>來源: ${task.ip_address}</p>` : ''}</div></div>`;
-            }).join('') : '<p class="text-center text-gray-500 py-4">目前沒有進行中的任務</p>';
-        } catch (error) {
-            tasksErrorCount++;
-            console.error(`更新任務狀態失敗 (第 ${tasksErrorCount} 次):`, error);
-            if (tasksErrorCount >= MAX_ERRORS) {
-                 clearInterval(activeTasksIntervalId);
-                 console.error("即時任務連續失敗次數過多，已停止自動刷新。");
+        else:
+            health_data['services']['compressor'] = {
+                'status': 'unhealthy',
+                'message': f'HTTP {response.status_code}',
+                'response_time_ms': response_time,
+                'url': COMPRESSOR_URL
             }
+    except requests.exceptions.Timeout:
+        health_data['services']['compressor'] = {
+            'status': 'unhealthy',
+            'message': '連線超時',
+            'url': COMPRESSOR_URL
         }
-    }
-
-    fetchStatsBtn.addEventListener('click', startStatsMonitoring);
-    statsSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') startStatsMonitoring(); });
-
-    // --- 檔案管理功能 ---
-    const loadFilesBtn = document.getElementById('load-files-btn');
-    const cleanupSecretInput = document.getElementById('cleanup-secret');
-    const filesContainer = document.getElementById('files-container');
-    const filesList = document.getElementById('files-list');
-    const cleanupMessage = document.getElementById('cleanup-message');
-    const selectAllCheckbox = document.getElementById('select-all-files');
-    const selectedCountSpan = document.getElementById('selected-count');
-    const batchDeleteBtn = document.getElementById('batch-delete-btn');
-    const paginationDiv = document.getElementById('pagination');
-
-    let currentPage = 1;
-    let selectedFiles = new Set();
-    let totalFiles = 0;
-
-    async function loadFiles(page = 1) {
-        const secret = cleanupSecretInput.value.trim();
-        if (!secret) {
-            cleanupMessage.textContent = '❌ 請輸入管理員密碼';
-            cleanupMessage.classList.remove('text-gray-500');
-            cleanupMessage.classList.add('text-red-500');
-            return;
+    except Exception as e:
+        health_data['services']['compressor'] = {
+            'status': 'unhealthy',
+            'message': str(e),
+            'url': COMPRESSOR_URL
         }
 
-        // 儲存密碼
-        if (secret) {
-            sessionStorage.setItem('adminSecret', secret);
-        }
+    # 檢查班表工具服務
+    try:
+        start_time = time.time()
+        response = requests.get(SCHEDULE_URL, timeout=5)
+        response_time = round((time.time() - start_time) * 1000, 2)
 
-        cleanupMessage.textContent = '⏳ 正在載入檔案列表...';
-        cleanupMessage.classList.remove('text-red-500');
-        cleanupMessage.classList.add('text-gray-500');
-
-        try {
-            const response = await fetch(`${backendUrl}/admin/api/all-files?page=${page}&limit=50`, {
-                headers: { 'X-Admin-Secret': secret }
-            });
-
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || '載入失敗');
-
-            currentPage = page;
-            totalFiles = data.total;
-            renderFiles(data.files);
-            renderPagination(data.page, data.total_pages);
-
-            filesContainer.classList.remove('hidden');
-            cleanupMessage.classList.add('hidden');
-        } catch (error) {
-            cleanupMessage.textContent = `❌ ${error.message}`;
-            cleanupMessage.classList.add('text-red-500');
-            filesContainer.classList.add('hidden');
-        }
-    }
-
-    function renderFiles(files) {
-        filesList.innerHTML = '';
-        selectedFiles.clear();
-        updateSelectedCount();
-
-        if (files.length === 0) {
-            filesList.innerHTML = '<p class="text-center text-gray-500 py-8">目前沒有任何檔案</p>';
-            return;
-        }
-
-        files.forEach(file => {
-            const fileDiv = document.createElement('div');
-            fileDiv.className = 'flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition';
-
-            const createdDate = new Date(file.created_at).toLocaleString('zh-TW');
-            const fileSize = formatBytes(file.file_size);
-
-            fileDiv.innerHTML = `
-                <div class="flex items-center space-x-4 flex-grow">
-                    <input type="checkbox" class="file-checkbox h-4 w-4 text-blue-600 rounded" data-file-id="${file._id}">
-                    <div class="flex-grow">
-                        <p class="font-medium text-gray-900">${file.filename}</p>
-                        <p class="text-sm text-gray-500">原始: ${file.original_filename}</p>
-                    </div>
-                </div>
-                <div class="text-right text-sm text-gray-600">
-                    <p>${fileSize}</p>
-                    <p class="text-xs">${createdDate}</p>
-                    <p class="text-xs">來源: ${file.ip_address}</p>
-                </div>
-            `;
-
-            filesList.appendChild(fileDiv);
-        });
-
-        // 添加複選框事件監聽
-        document.querySelectorAll('.file-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', handleFileCheckbox);
-        });
-    }
-
-    function renderPagination(currentPage, totalPages) {
-        paginationDiv.innerHTML = '';
-
-        if (totalPages <= 1) return;
-
-        // 上一頁按鈕
-        const prevBtn = document.createElement('button');
-        prevBtn.textContent = '‹ 上一頁';
-        prevBtn.className = `px-4 py-2 rounded-md ${currentPage === 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
-        prevBtn.disabled = currentPage === 1;
-        prevBtn.addEventListener('click', () => loadFiles(currentPage - 1));
-        paginationDiv.appendChild(prevBtn);
-
-        // 頁碼顯示
-        const pageInfo = document.createElement('span');
-        pageInfo.textContent = `第 ${currentPage} / ${totalPages} 頁`;
-        pageInfo.className = 'px-4 py-2 text-gray-700 font-medium';
-        paginationDiv.appendChild(pageInfo);
-
-        // 下一頁按鈕
-        const nextBtn = document.createElement('button');
-        nextBtn.textContent = '下一頁 ›';
-        nextBtn.className = `px-4 py-2 rounded-md ${currentPage === totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
-        nextBtn.disabled = currentPage === totalPages;
-        nextBtn.addEventListener('click', () => loadFiles(currentPage + 1));
-        paginationDiv.appendChild(nextBtn);
-    }
-
-    function handleFileCheckbox(e) {
-        const fileId = e.target.dataset.fileId;
-        if (e.target.checked) {
-            selectedFiles.add(fileId);
-        } else {
-            selectedFiles.delete(fileId);
-            selectAllCheckbox.checked = false;
-        }
-        updateSelectedCount();
-    }
-
-    function updateSelectedCount() {
-        selectedCountSpan.textContent = `已選擇 ${selectedFiles.size} 個檔案`;
-        batchDeleteBtn.disabled = selectedFiles.size === 0;
-    }
-
-    function formatBytes(bytes) {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    selectAllCheckbox.addEventListener('change', (e) => {
-        const checkboxes = document.querySelectorAll('.file-checkbox');
-        checkboxes.forEach(checkbox => {
-            checkbox.checked = e.target.checked;
-            const fileId = checkbox.dataset.fileId;
-            if (e.target.checked) {
-                selectedFiles.add(fileId);
-            } else {
-                selectedFiles.delete(fileId);
+        if response.status_code == 200:
+            health_data['services']['schedule'] = {
+                'status': 'healthy',
+                'message': '服務正常',
+                'response_time_ms': response_time,
+                'url': SCHEDULE_URL
             }
-        });
-        updateSelectedCount();
-    });
-
-    batchDeleteBtn.addEventListener('click', async () => {
-        if (selectedFiles.size === 0) return;
-
-        const confirmed = confirm(`確定要刪除 ${selectedFiles.size} 個檔案嗎？\n此操作無法復原！`);
-        if (!confirmed) return;
-
-        const secret = cleanupSecretInput.value.trim();
-        batchDeleteBtn.disabled = true;
-        batchDeleteBtn.textContent = '刪除中...';
-
-        try {
-            const response = await fetch(`${backendUrl}/admin/api/batch-delete`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Admin-Secret': secret
-                },
-                body: JSON.stringify({ task_ids: Array.from(selectedFiles) })
-            });
-
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || '刪除失敗');
-
-            alert(`✅ 成功刪除 ${result.deleted_count} 個檔案`);
-            loadFiles(currentPage);
-        } catch (error) {
-            alert(`❌ 刪除失敗: ${error.message}`);
-        } finally {
-            batchDeleteBtn.disabled = false;
-            batchDeleteBtn.textContent = '刪除選取的檔案';
+        else:
+            health_data['services']['schedule'] = {
+                'status': 'unhealthy',
+                'message': f'HTTP {response.status_code}',
+                'response_time_ms': response_time,
+                'url': SCHEDULE_URL
+            }
+    except requests.exceptions.Timeout:
+        health_data['services']['schedule'] = {
+            'status': 'unhealthy',
+            'message': '連線超時',
+            'url': SCHEDULE_URL
         }
-    });
-
-    loadFilesBtn.addEventListener('click', () => loadFiles(1));
-    cleanupSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') loadFiles(1); });
-
-    // --- 系統監控功能 ---
-    const startMonitorBtn = document.getElementById('start-monitor-btn');
-    const refreshHealthBtn = document.getElementById('refresh-health-btn');
-    const monitorSecretInput = document.getElementById('monitor-secret');
-    const monitorContainer = document.getElementById('monitor-container');
-    const monitorMessage = document.getElementById('monitor-message');
-    const overallStatusDiv = document.getElementById('overall-status');
-    const mongodbStatusDiv = document.getElementById('mongodb-status');
-    const compressorStatusDiv = document.getElementById('compressor-status');
-    const scheduleStatusDiv = document.getElementById('schedule-status');
-    const storageDetailsDiv = document.getElementById('storage-details');
-    const lastHealthCheckSpan = document.getElementById('last-health-check');
-
-    let healthCheckInterval = null;
-
-    async function loadSystemHealth() {
-        const secret = monitorSecretInput.value.trim();
-        if (!secret) {
-            monitorMessage.textContent = '❌ 請輸入管理員密碼';
-            monitorMessage.classList.remove('text-gray-500');
-            monitorMessage.classList.add('text-red-500');
-            return;
+    except Exception as e:
+        health_data['services']['schedule'] = {
+            'status': 'unhealthy',
+            'message': str(e),
+            'url': SCHEDULE_URL
         }
 
-        // 儲存密碼
-        if (secret) {
-            sessionStorage.setItem('adminSecret', secret);
-        }
+    # 計算整體健康狀態
+    all_healthy = (
+        health_data['database']['status'] == 'healthy' and
+        health_data['services'].get('compressor', {}).get('status') == 'healthy' and
+        health_data['services'].get('schedule', {}).get('status') == 'healthy'
+    )
 
-        try {
-            const response = await fetch(`${backendUrl}/admin/api/system-health`, {
-                headers: { 'X-Admin-Secret': secret }
-            });
+    health_data['overall_status'] = 'healthy' if all_healthy else 'degraded'
 
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || '載入失敗');
+    return jsonify(health_data), 200
 
-            renderSystemHealth(data);
-            monitorContainer.classList.remove('hidden');
-            monitorMessage.classList.add('hidden');
-        } catch (error) {
-            monitorMessage.textContent = `❌ ${error.message}`;
-            monitorMessage.classList.add('text-red-500');
-            monitorContainer.classList.add('hidden');
-        }
-    }
-
-    function renderSystemHealth(data) {
-        // 整體狀態
-        const isHealthy = data.overall_status === 'healthy';
-        overallStatusDiv.className = `mb-6 p-4 rounded-lg border-2 ${isHealthy ? 'bg-green-50 border-green-500' : 'bg-yellow-50 border-yellow-500'}`;
-        overallStatusDiv.innerHTML = `
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <div class="text-3xl">${isHealthy ? '✅' : '⚠️'}</div>
-                    <div>
-                        <p class="text-lg font-bold ${isHealthy ? 'text-green-800' : 'text-yellow-800'}">${isHealthy ? '系統運作正常' : '系統部分降級'}</p>
-                        <p class="text-sm ${isHealthy ? 'text-green-600' : 'text-yellow-600'}">所有服務已檢查</p>
-                    </div>
-                </div>
-                <p class="text-sm text-gray-500">更新時間: ${new Date(data.timestamp).toLocaleTimeString('zh-TW')}</p>
-            </div>
-        `;
-
-        // MongoDB 狀態
-        const dbHealthy = data.database.status === 'healthy';
-        mongodbStatusDiv.innerHTML = `
-            <h3 class="text-lg font-semibold mb-2">🗄️ MongoDB</h3>
-            <div class="space-y-2">
-                <div class="flex items-center space-x-2">
-                    <div class="w-3 h-3 rounded-full ${dbHealthy ? 'bg-green-500' : 'bg-red-500'}"></div>
-                    <span class="font-medium">${dbHealthy ? '正常運作' : '連線異常'}</span>
-                </div>
-                <p class="text-sm text-gray-600">${data.database.message}</p>
-                ${data.database.total_tasks !== undefined ? `<p class="text-xs text-gray-500">任務總數: ${data.database.total_tasks}</p>` : ''}
-            </div>
-        `;
-
-        // 壓縮工具狀態
-        const compressorService = data.services.compressor || {};
-        const compressorHealthy = compressorService.status === 'healthy';
-        compressorStatusDiv.innerHTML = `
-            <h3 class="text-lg font-semibold mb-2">📦 壓縮工具</h3>
-            <div class="space-y-2">
-                <div class="flex items-center space-x-2">
-                    <div class="w-3 h-3 rounded-full ${compressorHealthy ? 'bg-green-500' : 'bg-red-500'}"></div>
-                    <span class="font-medium">${compressorHealthy ? '正常運作' : '服務異常'}</span>
-                </div>
-                <p class="text-sm text-gray-600">${compressorService.message || '未知'}</p>
-                ${compressorService.response_time_ms ? `<p class="text-xs text-gray-500">回應時間: ${compressorService.response_time_ms}ms</p>` : ''}
-                ${compressorService.url ? `<p class="text-xs text-gray-400 truncate">${compressorService.url}</p>` : ''}
-            </div>
-        `;
-
-        // 班表工具狀態
-        const scheduleService = data.services.schedule || {};
-        const scheduleHealthy = scheduleService.status === 'healthy';
-        scheduleStatusDiv.innerHTML = `
-            <h3 class="text-lg font-semibold mb-2">📅 班表工具</h3>
-            <div class="space-y-2">
-                <div class="flex items-center space-x-2">
-                    <div class="w-3 h-3 rounded-full ${scheduleHealthy ? 'bg-green-500' : 'bg-red-500'}"></div>
-                    <span class="font-medium">${scheduleHealthy ? '正常運作' : '服務異常'}</span>
-                </div>
-                <p class="text-sm text-gray-600">${scheduleService.message || '未知'}</p>
-                ${scheduleService.response_time_ms ? `<p class="text-xs text-gray-500">回應時間: ${scheduleService.response_time_ms}ms</p>` : ''}
-                ${scheduleService.url ? `<p class="text-xs text-gray-400 truncate">${scheduleService.url}</p>` : ''}
-            </div>
-        `;
-
-        // 儲存空間資訊
-        if (data.storage && Object.keys(data.storage).length > 0) {
-            const storage = data.storage;
-            const warningColors = {
-                'normal': 'bg-blue-500',
-                'warning': 'bg-yellow-500',
-                'danger': 'bg-orange-500',
-                'full': 'bg-red-500'
-            };
-            const barColor = warningColors[storage.warning_level] || 'bg-blue-500';
-
-            storageDetailsDiv.innerHTML = `
-                <div class="space-y-4">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <p class="text-2xl font-bold">${storage.used_mb.toFixed(2)} MB <span class="text-sm font-normal text-gray-500">/ ${storage.total_mb} MB</span></p>
-                            <p class="text-sm text-gray-600">已使用 ${storage.usage_percent.toFixed(1)}%</p>
-                        </div>
-                        <div class="text-right">
-                            <p class="text-sm text-gray-600">可用空間</p>
-                            <p class="text-lg font-semibold">${storage.available_mb.toFixed(2)} MB</p>
-                        </div>
-                    </div>
-                    <div class="w-full bg-gray-200 rounded-full h-4">
-                        <div class="${barColor} h-4 rounded-full transition-all" style="width: ${storage.usage_percent}%"></div>
-                    </div>
-                    <div class="flex justify-between text-sm text-gray-500">
-                        <span>檔案數量: ${storage.file_count}</span>
-                        <span>警告等級: ${storage.warning_level === 'normal' ? '正常' : storage.warning_level === 'warning' ? '警告' : storage.warning_level === 'danger' ? '危險' : '已滿'}</span>
-                    </div>
-                </div>
-            `;
-        } else {
-            storageDetailsDiv.innerHTML = '<p class="text-gray-500">無法取得儲存空間資訊</p>';
-        }
-
-        // 更新最後檢查時間
-        lastHealthCheckSpan.textContent = `最後檢查: ${new Date().toLocaleTimeString('zh-TW')}`;
-    }
-
-    function startHealthMonitoring() {
-        loadSystemHealth();
-        clearInterval(healthCheckInterval);
-        healthCheckInterval = setInterval(loadSystemHealth, 30000); // 每 30 秒刷新
-    }
-
-    startMonitorBtn.addEventListener('click', startHealthMonitoring);
-    refreshHealthBtn.addEventListener('click', loadSystemHealth);
-    monitorSecretInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') startHealthMonitoring(); });
-
-    // --- 資料庫狀態檢查 ---
-    const dbStatusIndicator = document.getElementById('db-status-indicator');
-    const dbStatusText = document.getElementById('db-status-text');
-    async function checkDbStatus() { try { const response = await fetch(`${backendUrl}/status`); if (!response.ok) throw new Error('Network error'); const data = await response.json(); if (data.db_status === 'connected') { dbStatusIndicator.style.backgroundColor = '#22c55e'; dbStatusText.textContent = `連線正常 (${data.compressor_tasks_count || 0} 個任務)`; } else { throw new Error(data.message || '連線狀態未知'); } } catch (error) { dbStatusIndicator.style.backgroundColor = '#ef4444'; dbStatusText.textContent = '連線異常'; } }
-
-    // --- 初始載入 ---
-    document.addEventListener('DOMContentLoaded', () => {
-        // ✅ UX 改善: 頁面載入時自動填入已儲存的密碼
-        const savedSecret = sessionStorage.getItem('adminSecret');
-        if (savedSecret) {
-            statsSecretInput.value = savedSecret;
-            cleanupSecretInput.value = savedSecret;
-            monitorSecretInput.value = savedSecret;
-        }
-
-        fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
-        checkDbStatus();
-        setInterval(checkDbStatus, 30000);
-    });
-</script>
-</body>
-</html>
+# --- 本地開發專用 ---
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
 
