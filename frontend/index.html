@@ -820,13 +820,21 @@
     async function checkDbStatus() { try { const response = await fetch(`${backendUrl}/status`); if (!response.ok) throw new Error('Network error'); const data = await response.json(); if (data.db_status === 'connected') { dbStatusIndicator.style.backgroundColor = '#22c55e'; dbStatusText.textContent = `連線正常 (${data.compressor_tasks_count || 0} 個任務)`; } else { throw new Error(data.message || '連線狀態未知'); } } catch (error) { dbStatusIndicator.style.backgroundColor = '#ef4444'; dbStatusText.textContent = '連線異常'; } }
 
     // --- 初始載入 ---
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
         // 檢查是否已登入
         const savedSecret = getAdminSecret();
         if (savedSecret) {
-            // 已登入，隱藏登入對話框並初始化頁面
-            loginModal.classList.add('hidden');
-            fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
+            // 驗證舊密碼是否有效
+            const isValid = await verifyPassword(savedSecret);
+            if (isValid) {
+                // 密碼有效，隱藏登入對話框並初始化頁面
+                loginModal.classList.add('hidden');
+                fetchHolidays(currentDate.getFullYear(), currentDate.getMonth() + 1);
+            } else {
+                // 密碼無效，清除並顯示登入對話框
+                sessionStorage.removeItem('adminSecret');
+                loginModal.classList.remove('hidden');
+            }
         } else {
             // 未登入，顯示登入對話框
             loginModal.classList.remove('hidden');
