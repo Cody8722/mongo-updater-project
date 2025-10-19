@@ -1,0 +1,7 @@
+Flask>=3.0.0
+pymongo
+python-dotenv
+gunicorn
+Flask-Cors
+Flask-Limiter
+requests
